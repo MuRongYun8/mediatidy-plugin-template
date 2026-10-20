@@ -6,7 +6,7 @@
 
 1. 修改 `plugin.json` 的 id、name、author、version。自定义插件应改成自己的唯一 ID，如 `example.ai-organize`，不要复用官方 ID。
 2. 保留 `sdkVersion: "1"` 与 `entry: "dist/index.js"`，只申请真正需要的权限。
-3. 修改 `src/index.ts` 的提示词、提取规则和候选选择。插件不得提交自动整理。
+3. 修改 `src/worker/index.ts` 的提示词、提取规则和候选选择。插件不得提交自动整理。
 4. 本地运行：
 
    ```sh
@@ -97,3 +97,5 @@ node scripts/sync-plugin-template.cjs
 ```
 
 Go 测试会校验模板 dist、内置副本与 SDK 快照逐字节一致。远程独立仓库只分发模板目录的内容，包含固定快照，因此无需 checkout 整个 MT；更新 SDK 必须先升级主仓库再生成快照并发布模板新标签。不兼容 SDK 主版本应另行发布，v1 宿主拒绝安装。
+
+组件页面、Logo、资源安装与 FF 摘要能力的当前契约见 [组件协议 v1](plugins-component-protocol.md)。

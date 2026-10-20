@@ -5,7 +5,12 @@ interface MTProposal { fileRef: string; profileId: number; tmdbId: number; media
 interface MTProfile { id: number; name: string; destination: string; transferType: string; storageType: string; enabled: boolean }
 interface MTTask { id: number; status: string; error?: string; total?: number; completed?: number; failed?: number }
 interface MTInput { action: string; files: MTFile[]; input: Record<string, unknown>; config: Record<string, unknown>; sdkVersion: '1' }
+interface MTQualitySummary { total: number; eligible: boolean }
 interface MTSDK {
+ quality: {
+  evaluate(input:{fileRef:string;profileId:number}):MTQualitySummary;
+  compare(input:{fileRef:string;otherRef:string;profileId:number}):{first:MTQualitySummary;second:MTQualitySummary;decision:'first'|'second'|'equivalent'};
+ };
   files: {
     roots(): { id: string; name: string }[];
     list(input: { rootId: string; path: string; page: number }): { items: MTFile[]; hasMore: boolean };

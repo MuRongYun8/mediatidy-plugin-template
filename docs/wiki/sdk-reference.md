@@ -128,3 +128,11 @@ catch { mt.log({level:'warn',message:'该文件识别失败，可稍后重试'})
 ```
 
 所有调用还受插件运行预算约束：2000 RPC、每方法通常最多 500 次、通知／STRM 各 10、HTTP 50；30 秒 JS 计算预算、30 分钟墙钟预算、消息 1 MiB。能力错误不等于整个批次必须失败，模板会保留待修正草稿。最终整理不能由 catch 重放提交，只能由用户查看状态后确认。
+
+## 可选的质量业务摘要
+
+`quality.evaluate({fileRef,profileId})` → `{total,eligible}`。
+
+`quality.compare({fileRef,otherRef,profileId})` → `{first:{total,eligible},second:{total,eligible},decision:"first"|"second"|"equivalent"}`。
+
+分别需要 quality.evaluate/quality.compare 授权与方案授权，文件引用必须来自本插件当前运行。每天 UTC 合计 200 个文件，重启和新建运行不重置。拒绝自定义公式、权重、SHA1、FF 字段名和缓存查询；只读取已有缓存，缺失时按文件名评分。错误不会返回 FF 节点和缓存正文。AI 模板不申请这些权限。

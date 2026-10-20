@@ -1,4 +1,8 @@
-# 清单与 UI 规范
+# 清单与 UI
+
+新插件优先使用 [组件页面协议 v1](component-protocol.md)。清单增加 `ui: {version:"1",entry:"ui/page.json",icon:"ui/icon.png"}`，布局源码在 [src/ui/page.ts](../../src/ui/page.ts)。以下 config/actions/columns 字段继续作为动作、参数和旧版兼容界面的契约；不能利用页面绕过它们的后端校验。
+
+## 兼容字段声明
 
 [返回 Wiki](README.md)
 

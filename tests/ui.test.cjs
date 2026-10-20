@@ -1,0 +1,3 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
+const {validatePage}=require('../ui-sdk');
+test('distributed page and icon are present and compatible',()=>{const root=path.join(__dirname,'..');const manifest=JSON.parse(fs.readFileSync(path.join(root,'plugin.json')));assert.equal(manifest.ui.version,'1');assert.equal(manifest.permissions.some(p=>p.startsWith('quality.')),false);validatePage(JSON.parse(fs.readFileSync(path.join(root,manifest.ui.entry))),manifest.actions.map(a=>a.id));assert.equal(fs.readFileSync(path.join(root,manifest.ui.icon)).subarray(1,4).toString(),'PNG');});

@@ -18,7 +18,7 @@ npm run check
 | 路径 | 作用 |
 | --- | --- |
 | `plugin.json` | 标识、版本、能力、动作、配置与结果列 |
-| `src/index.ts` | 同步入口、两轮 AI 提示词、候选映射 |
+| `src/worker/index.ts` | 同步入口、两轮 AI 提示词、候选映射 |
 | `dist/index.js` | MT 实际安装的预打包 JS，必须提交 |
 | `sdk/` | 从 MT 主仓库生成的固定 SDK 类型与 mock |
 | `tests/` | 无真实凭据的识别流程测试 |
@@ -26,7 +26,7 @@ npm run check
 
 ## 第一次修改
 
-在清单中将 `id` 改为如 `example.my-organizer`，修改 `name`、`author`、`description` 和自己的版本；保留 SDK 主版本 `"1"` 和入口 `dist/index.js`。修改 `src/index.ts` 的提示词或策略，保留按 `fileRef` 配对与真实候选校验。
+在清单中将 `id` 改为如 `example.my-organizer`，修改 `name`、`author`、`description` 和自己的版本；保留 SDK 主版本 `"1"` 和入口 `dist/index.js`。修改 `src/worker/index.ts` 的提示词或策略，保留按 `fileRef` 配对与真实候选校验。
 
 只修改 AI 模板的提示词，也可直接使用现有 `extractionPrompt`／`selectionPrompt` 配置，无需另写 UI。新增长期选项放 `config`，每次运行不同的输入放动作 `fields`，示例见 [清单规范](manifest-ui.md)。
 
@@ -67,3 +67,13 @@ const {result, calls} = runPlugin(code, input, handlers);
 提交清单、src、dist、sdk、测试、锁文件和文档到自己的公开仓库，在 MT“从仓库安装”填你的仓库地址及分支。检查权限，授权目录和方案，启用后运行测试媒体。按运行日志定位哪个能力失败；不要将凭据或全局日志写入插件。
 
 发布前创建不可随意移动的版本标签，参见 [发布指南](release-troubleshooting.md)。SDK 快照只从 MT 主仓库更新，禁止两边手工维护定义。
+
+## 页面开发
+
+1. 修改 `src/ui/page.ts`，使用 ui-sdk 的 definePage/node；类型检查会提示组件属性。
+2. 替换 `ui/icon.png`，使用 16–2048 像素 PNG，最大 2 MiB。
+3. `npm run build` → `npm run typecheck` → `npm run validate` → `npm test`。
+4. `npm run preview -- <MT源码目录>`，在真实 MT 渲染器中检查桌面、手机和深浅主题。
+5. 提交 dist、ui、源码与文档，打新标签，通过仓库地址安装。SDK/UI SDK 快照只从 MT 同步，不在模板维护另一套类型。
+
+[完整组件协议](component-protocol.md) 按 AI 页面各段解释布局、数据和事件。

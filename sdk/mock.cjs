@@ -4,7 +4,7 @@ const vm = require('node:vm');
 function runPlugin(code, input, handlers = {}) {
   const calls = [];
   const sdk = {};
-  for (const [group, methods] of Object.entries({ files: ['roots','list','stat'], ai: ['complete'], tmdb: ['search','detail','season'], organize: ['profiles','prepare'], tasks: ['list','cancel'], storage: ['get','set','delete'], config: ['get'], notification: ['send'], strm: ['run'], http: ['request'] })) {
+  for (const [group, methods] of Object.entries({ quality: ['evaluate','compare'], files: ['roots','list','stat'], ai: ['complete'], tmdb: ['search','detail','season'], organize: ['profiles','prepare'], tasks: ['list','cancel'], storage: ['get','set','delete'], config: ['get'], notification: ['send'], strm: ['run'], http: ['request'] })) {
     sdk[group] = {};
     for (const method of methods) sdk[group][method] = arg => {
       const name = `${group}.${method}`;

@@ -100,3 +100,5 @@ sequenceDiagram
 | GET / PUT | `/:id/schedule` | 定时识别设置，五段 Cron |
 
 权威接口类型位于 `frontend/src/api/index.ts` 与 `backend/internal/plugins/types.go`；脚本 SDK 类型与本地模拟仅以根目录 `plugin-sdk/` 为源，模板内 SDK 为固定 1.0.0 的生成快照。
+
+组件页面、Logo、资源安装与 FF 摘要能力的当前契约见 [组件协议 v1](plugins-component-protocol.md)。

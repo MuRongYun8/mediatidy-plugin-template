@@ -1,4 +1,4 @@
-/// <reference path="../sdk/index.d.ts" />
+/// <reference path="../../sdk/index.d.ts" />
 
 type Hint = { fileRef: string; name: string; year: number | null; mediaType: string; season: number | null; episode: number | null; multiEpisode: boolean };
 type Choice = { fileRef: string; tmdbId: number | null; mediaType: string; uncertain: boolean; reason: string };

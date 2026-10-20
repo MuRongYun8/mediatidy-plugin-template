@@ -1,7 +1,7 @@
 {
   "id": "official.ai-organize",
   "name": "AI 识别整理",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "sdkVersion": "1",
   "description": "逐文件 AI 识别、从 TMDB 候选中核验作品，生成待确认的手动整理草稿。文件名、相对路径和补充说明会发送至 MT 配置的模型服务。",
   "author": "MediaTidy",
@@ -64,5 +64,10 @@
       "key": "status",
       "label": "识别结果"
     }
-  ]
+  ],
+  "ui": {
+    "version": "1",
+    "entry": "ui/page.json",
+    "icon": "ui/icon.png"
+  }
 }
