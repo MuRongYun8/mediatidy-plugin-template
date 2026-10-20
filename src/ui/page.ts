@@ -4,7 +4,7 @@ const text = (text:string):UINode => n('Text',{text,tone:'muted'});
 const when = (node:UINode,path:'ui.showNew'|'ui.hasRun'|'ui.working',op:'truthy'|'falsy'='truthy'):UINode => ({...node,visibleWhen:{path,op}});
 export default definePage({version:'1',tabs:[
   {id:'overview',label:'概览',content:[n('Card',{title:'让复杂文件名变成可靠的整理草稿'},[
-    text('AI 逐文件理解文件名，再从 TMDB 真实候选中选择作品。MT 重新核验后，你决定哪些文件可以整理。'),
+    text('作品名称、原名、年份和季集全部由插件中的 AI 判断。TMDB 仅用于匹配整理所需条目；匹配失败仍保留 AI 识别结果，MT 不调用核心识别流程。'),
     n('Steps',{labels:['选择文件','AI 识别','核验修正','确认整理'],bind:'ui.step'}),
     n('Alert',{text:'需要已启用的 AI、TMDB 和整理方案。文件名、相对路径及补充说明会发送至你配置的模型服务。'}),
     n('Button',{label:'新建识别',action:'newRun'})])]},
@@ -29,7 +29,7 @@ export default definePage({version:'1',tabs:[
       n('Table',{source:'run.drafts',selectable:true,columns:[
         {label:'文件',cells:[n('Text',{bind:'row.file.name',lines:2}),n('Details',{label:'文件详情与 AI 依据'},[
           text('完整文件名'),n('Text',{bind:'row.file.name'}),text('相对路径'),n('Text',{bind:'row.file.path'}),text('AI 依据'),n('Text',{bind:'row.reason'}),text('整理方案'),n('Text',{bind:'row.profile.name'}),n('Text',{bind:'row.profile.destination'})])]},
-        {label:'作品与季集',cells:[n('Text',{bind:'row.media.title'}),n('Stack',{direction:'row',gap:'sm'},[n('Text',{bind:'row.media.year',tone:'muted'}),n('Text',{bind:'row.mediaType',format:'mediaType',tone:'muted'})]),n('Stack',{direction:'row',gap:'sm'},[text('TMDB'),n('Text',{bind:'row.tmdbId',tone:'muted'}),n('Text',{bind:'row.seasonEpisode'})])]},
+        {label:'AI 识别作品与季集',cells:[n('Text',{bind:'row.media.title'}),{...n('Text',{bind:'row.recognition.title'}),visibleWhen:{path:'row.media.title',op:'falsy'}},{...n('Stack',{},[{...n('Text',{text:'AI 识别 · 条目待匹配',tone:'warning'}),visibleWhen:{path:'row.recognition.title',op:'truthy'}}]),visibleWhen:{path:'row.tmdbId',op:'falsy'}},n('Stack',{direction:'row',gap:'sm'},[n('Text',{bind:'row.media.year',tone:'muted'}),{...n('Text',{bind:'row.recognition.year',tone:'muted'}),visibleWhen:{path:'row.media.year',op:'falsy'}},n('Text',{bind:'row.mediaType',format:'mediaType',tone:'muted'})]),n('Stack',{direction:'row',gap:'sm'},[{...text('TMDB'),visibleWhen:{path:'row.tmdbId',op:'truthy'}},{...n('Text',{bind:'row.tmdbId',tone:'muted'}),visibleWhen:{path:'row.tmdbId',op:'truthy'}},n('Text',{bind:'row.seasonEpisode'})])]},
         {label:'核验与整理状态',cells:[n('Status',{bind:'row.displayStatus'}),n('Text',{bind:'row.error',tone:'danger'}),n('Text',{bind:'row.reason',format:'defaultSeason',tone:'warning'})]},
         {label:'操作',cells:[{...n('Button',{label:'修正',action:'editDraft',variant:'outline'}),visibleWhen:{path:'row.canEdit',op:'truthy'}},{...n('Button',{label:'取消整理',action:'cancelTask',variant:'ghost'}),visibleWhen:{path:'row.canCancel',op:'truthy'}}]}
       ]}),n('Pagination'),n('SelectionBar'),n('RunLog')]),'ui.hasRun'),

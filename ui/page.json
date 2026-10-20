@@ -14,7 +14,7 @@
             {
               "component": "Text",
               "props": {
-                "text": "AI 逐文件理解文件名，再从 TMDB 真实候选中选择作品。MT 重新核验后，你决定哪些文件可以整理。",
+                "text": "作品名称、原名、年份和季集全部由插件中的 AI 判断。TMDB 仅用于匹配整理所需条目；匹配失败仍保留 AI 识别结果，MT 不调用核心识别流程。",
                 "tone": "muted"
               },
               "children": []
@@ -402,7 +402,7 @@
                     ]
                   },
                   {
-                    "label": "作品与季集",
+                    "label": "AI 识别作品与季集",
                     "cells": [
                       {
                         "component": "Text",
@@ -410,6 +410,39 @@
                           "bind": "row.media.title"
                         },
                         "children": []
+                      },
+                      {
+                        "component": "Text",
+                        "props": {
+                          "bind": "row.recognition.title"
+                        },
+                        "children": [],
+                        "visibleWhen": {
+                          "path": "row.media.title",
+                          "op": "falsy"
+                        }
+                      },
+                      {
+                        "component": "Stack",
+                        "props": {},
+                        "children": [
+                          {
+                            "component": "Text",
+                            "props": {
+                              "text": "AI 识别 · 条目待匹配",
+                              "tone": "warning"
+                            },
+                            "children": [],
+                            "visibleWhen": {
+                              "path": "row.recognition.title",
+                              "op": "truthy"
+                            }
+                          }
+                        ],
+                        "visibleWhen": {
+                          "path": "row.tmdbId",
+                          "op": "falsy"
+                        }
                       },
                       {
                         "component": "Stack",
@@ -425,6 +458,18 @@
                               "tone": "muted"
                             },
                             "children": []
+                          },
+                          {
+                            "component": "Text",
+                            "props": {
+                              "bind": "row.recognition.year",
+                              "tone": "muted"
+                            },
+                            "children": [],
+                            "visibleWhen": {
+                              "path": "row.media.year",
+                              "op": "falsy"
+                            }
                           },
                           {
                             "component": "Text",
@@ -450,7 +495,11 @@
                               "text": "TMDB",
                               "tone": "muted"
                             },
-                            "children": []
+                            "children": [],
+                            "visibleWhen": {
+                              "path": "row.tmdbId",
+                              "op": "truthy"
+                            }
                           },
                           {
                             "component": "Text",
@@ -458,7 +507,11 @@
                               "bind": "row.tmdbId",
                               "tone": "muted"
                             },
-                            "children": []
+                            "children": [],
+                            "visibleWhen": {
+                              "path": "row.tmdbId",
+                              "op": "truthy"
+                            }
                           },
                           {
                             "component": "Text",

@@ -1,7 +1,9 @@
 /** MediaTidy SDK v1. Calls are synchronous JSON RPC inside the isolated worker. */
 interface MTFile { ref: string; name: string; path: string; rootId: string; size: number; isDir: boolean; modifiedAt: string }
 interface MTCandidate { id: number; title: string; originalTitle: string; year: string; mediaType: 'movie' | 'tv'; overview: string }
-interface MTProposal { fileRef: string; profileId: number; tmdbId: number; mediaType: string; season?: number; episode?: number; reason: string; unsupported?: boolean }
+/** Unverified plugin identification; display only, never authorizes organizing. */
+interface MTRecognition { title: string; originalTitle?: string; year?: number }
+interface MTProposal { fileRef: string; profileId: number; tmdbId: number; mediaType: string; season?: number; episode?: number; reason: string; unsupported?: boolean; recognition?: MTRecognition }
 interface MTProfile { id: number; name: string; destination: string; transferType: string; storageType: string; enabled: boolean }
 interface MTTask { id: number; status: string; error?: string; total?: number; completed?: number; failed?: number }
 interface MTInput { action: string; files: MTFile[]; input: Record<string, unknown>; config: Record<string, unknown>; sdkVersion: '1' }

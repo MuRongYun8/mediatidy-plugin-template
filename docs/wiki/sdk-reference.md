@@ -2,7 +2,7 @@
 
 [返回 Wiki](README.md) · [完整 TypeScript 定义](../../sdk/index.d.ts)
 
-所有方法都是工作进程内的同步 JSON RPC。调用失败抛出 `Error`，可用 try/catch 按文件恢复；只有返回正常结果才视为能力调用成功。JSON 返回不含宿主凭据或原始内部对象。SDK 主版本为字符串 `"1"`，当前类型快照包版本为 1.0.0；与模板业务版本 1.0.1 独立。
+所有方法都是工作进程内的同步 JSON RPC。调用失败抛出 `Error`，可用 try/catch 按文件恢复；只有返回正常结果才视为能力调用成功。JSON 返回不含宿主凭据或原始内部对象。SDK 主版本为字符串 `"1"`，当前类型快照包版本为 1.0.0；与模板业务版本 1.1.1 独立。
 
 ## 入口与公共模型
 
@@ -29,6 +29,7 @@ interface MTProfile {
 interface MTProposal {
   fileRef: string; profileId: number; tmdbId: number; mediaType: string;
   season?: number; episode?: number; reason: string; unsupported?: boolean;
+  recognition?: {title:string;originalTitle?:string;year?:number};
 }
 interface MTTask {
   id: number; status: string; error?: string;
@@ -136,3 +137,5 @@ catch { mt.log({level:'warn',message:'该文件识别失败，可稍后重试'})
 `quality.compare({fileRef,otherRef,profileId})` → `{first:{total,eligible},second:{total,eligible},decision:"first"|"second"|"equivalent"}`。
 
 分别需要 quality.evaluate/quality.compare 授权与方案授权，文件引用必须来自本插件当前运行。每天 UTC 合计 200 个文件，重启和新建运行不重置。拒绝自定义公式、权重、SHA1、FF 字段名和缓存查询；只读取已有缓存，缺失时按文件名评分。错误不会返回 FF 节点和缓存正文。AI 模板不申请这些权限。
+
+`recognition` 是插件 AI 识别出的作品描述，未匹配条目时仍可展示和搜索；服务端限制长度，不能替代 `media`、实际 ID、季集核验或用户确认。
