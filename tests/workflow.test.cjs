@@ -22,4 +22,21 @@ test('missing, duplicate or foreign references cannot replace other files',()=> 
 test('fabricated TMDB ID and uncertain choices remain unresolved',()=> { const {drafts}=run({choices:[{fileRef:'movie',tmdbId:999,mediaType:'movie',uncertain:false,reason:'fake'},{fileRef:'tv',tmdbId:2020202,mediaType:'tv',uncertain:true,reason:'uncertain'}]}); assert.ok(drafts.every(d=>d.tmdbId===0)); });
 test('multi episode files are never truncated to a single episode',()=> { const {drafts}=run({files:[{...files[1],name:'Show.S02E03-E04.mkv'}]});assert.equal(drafts[0].unsupported,true);assert.equal(drafts[0].tmdbId,0); });
 test('invalid season and episode values are not coerced',()=> { const {drafts}=run({hints:[hint(files[0]),{...hint(files[1]),season:'2',episode:-1}]});assert.equal(drafts[1].season,undefined);assert.equal(drafts[1].episode,undefined); });
+
+test('missing season defaults to one and records the assumption; episode is never guessed',()=> {
+  for (const season of [null, undefined]) {
+    const {drafts}=run({hints:[hint(files[0]),{...hint(files[1]),season,episode:null}]});
+    assert.equal(drafts[1].season,1); assert.equal(drafts[1].episode,undefined);
+    assert.match(drafts[1].reason,/未识别到季数，默认第 1 季/);
+    assert.equal(drafts[0].season,undefined);
+  }
+});
+
+test('explicit special or later seasons survive; invalid seasons do not default',()=> {
+  for (const season of [0, 3, -1, '1', 10000]) {
+    const {drafts}=run({hints:[hint(files[0]),{...hint(files[1]),season}]});
+    assert.equal(drafts[1].season,season===0 || season===3 ? season : undefined);
+    assert.doesNotMatch(drafts[1].reason,/默认第 1 季/);
+  }
+});
 test('one batch failure still creates editable drafts for every file',()=> { const drafts=[]; runPlugin(code,{action:'recognize',files,input:{profileId:1},config:{},sdkVersion:'1'}, {'ai.complete':()=>{throw Error('timeout')},'organize.prepare':p=>{drafts.push(p);return null}}); assert.equal(drafts.length,2);assert.ok(drafts.every(d=>d.tmdbId===0)); });

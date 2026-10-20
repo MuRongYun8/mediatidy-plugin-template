@@ -91,6 +91,10 @@ module.exports.run = function (input) {
             if (p.mediaType === 'tv') {
                 if (integer(h.season, 0))
                     p.season = h.season;
+                else if (h.season === null || h.season === undefined) {
+                    p.season = 1;
+                    p.reason += '；未识别到季数，默认第 1 季';
+                }
                 if (integer(h.episode, 1))
                     p.episode = h.episode;
             }

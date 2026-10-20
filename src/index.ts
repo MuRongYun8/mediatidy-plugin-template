@@ -77,6 +77,10 @@ module.exports.run = function(input: MTInput) {
       if (unsupported) p.reason = '多集合集无法用单文件季集覆写表达，请人工处理';
       if (p.mediaType === 'tv') {
         if (integer(h.season, 0)) p.season = h.season;
+        else if (h.season === null || h.season === undefined) {
+          p.season = 1;
+          p.reason += '；未识别到季数，默认第 1 季';
+        }
         if (integer(h.episode, 1)) p.episode = h.episode;
       }
       // The host validates every ID, episode, profile and file reference.
