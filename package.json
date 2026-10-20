@@ -1,0 +1,7 @@
+{
+  "name": "mediatidy-plugin-template",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "typecheck": "node scripts/dev.cjs typecheck", "validate": "node scripts/dev.cjs validate", "build": "node scripts/dev.cjs build", "test": "node --test tests/workflow.test.cjs", "check": "npm run typecheck && npm run validate && npm run build && npm test" },
+  "devDependencies": { "typescript": "5.9.3" }
+}
