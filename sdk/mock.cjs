@@ -4,7 +4,7 @@ const vm = require('node:vm');
 function runPlugin(code, input, handlers = {}) {
   const calls = [];
   const sdk = {};
-  for (const [group, methods] of Object.entries({ quality: ['evaluate','compare'], files: ['roots','list','stat'], ai: ['complete'], tmdb: ['search','detail','season'], organize: ['profiles','prepare'], tasks: ['list','cancel'], storage: ['get','set','delete'], config: ['get'], notification: ['send'], strm: ['run'], http: ['request'] })) {
+  for (const [group, methods] of Object.entries({ quality: ['evaluate','compare'], files: ['roots','list','stat'], ai: ['complete','chat'], tmdb: ['search','detail','season'], organize: ['profiles','prepare'], tasks: ['list','cancel'], storage: ['get','set','delete'], config: ['get'], notification: ['send'], strm: ['run'], http: ['request'] })) {
     sdk[group] = {};
     for (const method of methods) sdk[group][method] = arg => {
       const name = `${group}.${method}`;
@@ -12,6 +12,7 @@ function runPlugin(code, input, handlers = {}) {
       if (!handlers[name]) throw new Error(`Missing mock: ${name}`);
       return structuredClone(handlers[name](arg));
     };
+    if (group === 'ai') sdk.ai.web = Object.freeze({search: arg => {calls.push({name:'ai.web.search', input:structuredClone(arg)});if(!handlers['ai.web.search'])throw Error('Missing mock: ai.web.search');return structuredClone(handlers['ai.web.search'](arg));}});
     Object.freeze(sdk[group]);
   }
   sdk.log = arg => { calls.push({ name: 'log', input: arg }); return true; };

@@ -2,7 +2,10 @@
 interface MTFile { ref: string; name: string; path: string; rootId: string; size: number; isDir: boolean; modifiedAt: string }
 interface MTCandidate { id: number; title: string; originalTitle: string; year: string; mediaType: 'movie' | 'tv'; overview: string }
 /** Unverified plugin identification; display only, never authorizes organizing. */
-interface MTRecognition { title: string; originalTitle?: string; year?: number }
+interface MTRecognition { title: string; originalTitle?: string; year?: number; sources?: string }
+interface MTToolCall { id: string; name: string; arguments: string }
+interface MTMessage { role: 'system' | 'user' | 'assistant' | 'tool'; content?: string; toolCallId?: string; toolCalls?: MTToolCall[] }
+interface MTTool { name: string; description: string; parameters: Record<string, unknown> }
 interface MTProposal { fileRef: string; profileId: number; tmdbId: number; mediaType: string; season?: number; episode?: number; reason: string; unsupported?: boolean; recognition?: MTRecognition }
 interface MTProfile { id: number; name: string; destination: string; transferType: string; storageType: string; enabled: boolean }
 interface MTTask { id: number; status: string; error?: string; total?: number; completed?: number; failed?: number }
@@ -18,7 +21,11 @@ interface MTSDK {
     list(input: { rootId: string; path: string; page: number }): { items: MTFile[]; hasMore: boolean };
     stat(input: { rootId: string; path: string }): MTFile;
   };
-  ai: { complete(input: { system: string; input: string; schema?: Record<string, unknown> }): { content: unknown; usage: Record<string, number> } };
+  ai: {
+    complete(input: { system: string; input: string; schema?: Record<string, unknown> }): { content: unknown; usage: Record<string, number> };
+    chat(input: { messages: MTMessage[]; tools?: MTTool[] }): { message: MTMessage; usage: Record<string, number>; toolsUnavailable?: boolean };
+    web: { search(input: { query: string }): { items: { title: string; summary: string; url: string }[]; usage: Record<string, number> } };
+  };
   tmdb: {
     search(input: { query: string; mediaType: string; year?: number }): MTCandidate[];
     detail(input: { id: number; mediaType: string }): MTCandidate;

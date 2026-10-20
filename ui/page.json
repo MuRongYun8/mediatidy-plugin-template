@@ -14,7 +14,7 @@
             {
               "component": "Text",
               "props": {
-                "text": "作品名称、原名、年份和季集全部由插件中的 AI 判断。TMDB 仅用于匹配整理所需条目；匹配失败仍保留 AI 识别结果，MT 不调用核心识别流程。",
+                "text": "直接让 AI 判断作品和季集；AI 自己决定是否联网、怎样搜索和查询 TMDB。MT 只核验条目和整理授权，不参与识别策略。",
                 "tone": "muted"
               },
               "children": []
@@ -35,7 +35,7 @@
             {
               "component": "Alert",
               "props": {
-                "text": "需要已启用的 AI、TMDB 和整理方案。文件名、相对路径及补充说明会发送至你配置的模型服务。"
+                "text": "需要已启用的 AI、TMDB 和整理方案。文件线索会发送至模型；授权联网后，查询词还可能发送至配置的搜索服务。"
               },
               "children": []
             },
@@ -372,6 +372,21 @@
                             "component": "Text",
                             "props": {
                               "bind": "row.reason"
+                            },
+                            "children": []
+                          },
+                          {
+                            "component": "Text",
+                            "props": {
+                              "text": "公开查询来源",
+                              "tone": "muted"
+                            },
+                            "children": []
+                          },
+                          {
+                            "component": "Text",
+                            "props": {
+                              "bind": "row.recognition.sources"
                             },
                             "children": []
                           },

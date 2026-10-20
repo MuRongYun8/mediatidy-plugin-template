@@ -34,7 +34,7 @@ module.exports.run = function (input: MTInput) {
 
 宿主接收动作后在独立队列扫描所选文件；`input.files` 是去重后的安全文件列表，`ref` 是当前运行内的不透明引用，不能自行构造或跨运行复用。传给模型只挑选 name、path 与 ref 和用户说明，不发送 size、完整宿主路径、授权配置或其他 SDK 结果。
 
-Goja 同步调用便于固定计算预算、RPC 次数和取消语义。不要写无限循环或自建并发。模板每批 8 文件，两轮模型最多 26 次，留在宿主 32 次额度内。长操作放宿主能力调用中；支持取消的宿主请求使用工作进程运行上下文。工作进程不能用定时器绕过执行预算。
+Goja 同步调用便于固定计算预算、RPC 次数和取消语义。不要写无限循环或自建并发。模板每批 8 文件、最多 6 轮自主管理的模型对话；每运行 ai.chat 与 ai.complete 合计最多 78 次（旧 complete 单方法仍最多 32 次），公开搜索最多 32 次。长操作放宿主能力调用中；支持取消的宿主请求使用工作进程运行上下文。工作进程不能用定时器绕过执行预算。
 
 ## 清单和界面
 
@@ -64,7 +64,7 @@ mt.organize.prepare({fileRef: input.files[0].ref, profileId: 1, tmdbId: 12345,
 
 `tasks.list()` 返回当前宿主会话内本插件创建的任务摘要，`tasks.cancel({id})` 只能取消所属任务。重启后任务编号不能用作所有权凭据，旧记录必须去 MT 任务中心核对。
 
-`notification.send({channelId,title,content})` 只投递到授权通道；`strm.run({profileId})` 只触发授权方案。HTTP 按 URL 和方法授权，不能任意加鉴权头，也无法访问 MT/ff/元数据服务。自定义模型统一使用 `ai.complete`，不通过 HTTP 保存或请求模型密钥。
+`notification.send({channelId,title,content})` 只投递到授权通道；`strm.run({profileId})` 只触发授权方案。HTTP 按 URL 和方法授权，不能任意加鉴权头，也无法访问 MT/ff/元数据服务。自定义模型统一使用 `ai.chat` 或 `ai.complete`，不通过 HTTP 保存或请求模型密钥。
 
 ## 错误、重试和调试
 

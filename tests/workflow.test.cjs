@@ -1,76 +1,76 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const { runPlugin } = require('../sdk/mock.cjs');
-const code = fs.readFileSync(path.join(__dirname,'../dist/index.js'),'utf8');
-const files = [ {ref:'movie',name:'Film.2024.mkv',path:'movies/Film.2024.mkv'}, {ref:'tv',name:'Show.S02E03.mkv',path:'shows/Show.S02E03.mkv'} ];
-const hint = f => ({fileRef:f.ref,name:f.ref,year:2024,mediaType:f.ref==='movie'?'movie':'tv',season:f.ref==='tv'?2:null,episode:f.ref==='tv'?3:null,multiEpisode:false});
-function run(options = {}) {
-  let round = 0; const drafts = []; const chosenFiles = options.files || files;
-  const {calls,result} = runPlugin(code, { action:'recognize', files:chosenFiles, input:{profileId:1,instructions:'test'},config:{},sdkVersion:'1' }, {
-    'ai.complete': () => { round++; return { content: {items:round===1 ? (options.hints || chosenFiles.map(hint)).slice().reverse() : (options.choices || chosenFiles.map(f=>({fileRef:f.ref,tmdbId:f.ref==='movie'?1010101:2020202,mediaType:f.ref==='movie'?'movie':'tv',uncertain:false,reason:'候选一致'}))).slice().reverse()},usage:{} }; },
-    'tmdb.search': options.search || (({mediaType}) => [{id:mediaType==='movie'?1010101:2020202,title:'title',mediaType,year:'2024'}]),
-    'organize.prepare': p => { drafts.push(p); return {status:'ready'}; },
-  }); return {drafts,calls,result};
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const {runPlugin}=require('../sdk/mock.cjs');
+const code=fs.readFileSync(path.join(__dirname,'../dist/index.js'),'utf8');
+const files=[{ref:'movie',name:'Film.2024.mkv',path:'movies/Film.2024.mkv'},{ref:'tv',name:'A.Prophet.2026.S01E03.2160p.TX.WEB-DL.DDP5.1.HFR.H.265-FGTWeb.mkv',path:'shows/A.Prophet.2026.S01E03.mkv'}];
+const identity=f=>({fileRef:f.ref,title:f.ref==='movie'?'Film':'模型识别的剧名',year:2024,mediaType:f.ref==='movie'?'movie':'tv',season:f.ref==='tv'?2:null,episode:f.ref==='tv'?3:null,multiEpisode:false,reason:'模拟识别结论',tmdbId:f.ref==='movie'?101:202});
+const answer=items=>({message:{role:'assistant',content:JSON.stringify({items})},usage:{}});
+const tool=(name,args,id='call')=>({message:{role:'assistant',toolCalls:[{id,name,arguments:JSON.stringify(args)}]},usage:{}});
+function run(options={}) {
+ const drafts=[],chosen=options.files||files;let round=0;
+ const result=runPlugin(code,{action:'recognize',files:chosen,input:{profileId:1,instructions:'用户说明'},config:options.config||{},sdkVersion:'1'},{
+  'ai.chat':v=>options.chat?options.chat(v,round++):answer((options.items||chosen.map(identity)).slice().reverse()),
+  'tmdb.search':options.search||(()=>[]),'tmdb.detail':options.detail||(v=>({id:v.id,mediaType:v.mediaType,title:'TMDB 条目'})),
+  'ai.web.search':options.web||(()=>({items:[{title:'公开来源',summary:'公开摘要',url:'https://example.com/show'}],usage:{}})),
+  'organize.prepare':p=>{drafts.push(p);return {status:p.tmdbId?'ready':'needs_review'};}
+ });return {...result,drafts};
 }
-test('mixed files stay paired despite model output order; never submit', () => {
-  const {drafts,calls}=run(); assert.deepEqual(drafts.map(d=>[d.fileRef,d.tmdbId,d.season,d.episode]), [['movie',1010101,undefined,undefined],['tv',2020202,2,3]]); assert.equal(calls.some(c=>c.name==='organize.submit'),false);
-  const outbound = calls.filter(c=>c.name==='ai.complete').map(c=>JSON.parse(c.input.input)); assert.equal(outbound[0].files[0].name, files[0].name); assert.equal(outbound[0].files[0].size,undefined);
+test('direct AI answer needs no lookup, keeps mixed file pairing and never submits',()=>{
+ const {drafts,calls}=run();assert.deepEqual(drafts.map(d=>[d.fileRef,d.tmdbId,d.season,d.episode]),[['movie',101,undefined,undefined],['tv',202,2,3]]);
+ assert.deepEqual(calls.map(c=>c.name),['ai.chat','organize.prepare','organize.prepare']);
+ const input=JSON.parse(calls[0].input.messages[1].content);assert.equal(input.files[1].name,files[1].name);assert.deepEqual(Object.keys(input.files[0]).sort(),['fileRef','name','path']);assert.equal(input.instructions,'用户说明');
 });
-test('missing, duplicate or foreign references cannot replace other files',()=> { const {drafts}=run({hints:[hint(files[0]),hint(files[0]),{...hint(files[1]),fileRef:'foreign'}]}); assert.ok(drafts.every(d=>d.tmdbId===0)); });
-test('fabricated TMDB ID and uncertain choices remain unresolved',()=> { const {drafts}=run({choices:[{fileRef:'movie',tmdbId:999,mediaType:'movie',uncertain:false,reason:'fake'},{fileRef:'tv',tmdbId:2020202,mediaType:'tv',uncertain:true,reason:'uncertain'}]}); assert.ok(drafts.every(d=>d.tmdbId===0)); });
-test('multi episode files are never truncated to a single episode',()=> { const {drafts}=run({files:[{...files[1],name:'Show.S02E03-E04.mkv'}]});assert.equal(drafts[0].unsupported,true);assert.equal(drafts[0].tmdbId,0); });
-test('invalid season and episode values are not coerced',()=> { const {drafts}=run({hints:[hint(files[0]),{...hint(files[1]),season:'2',episode:-1}]});assert.equal(drafts[1].season,undefined);assert.equal(drafts[1].episode,undefined); });
-
-test('missing season defaults to one and records the assumption; episode is never guessed',()=> {
-  for (const season of [null, undefined]) {
-    const {drafts}=run({hints:[hint(files[0]),{...hint(files[1]),season,episode:null}]});
-    assert.equal(drafts[1].season,1); assert.equal(drafts[1].episode,undefined);
-    assert.match(drafts[1].reason,/未识别到季数，默认第 1 季/);
-    assert.equal(drafts[0].season,undefined);
-  }
+test('AI can search web then TMDB and choose query words without rewriting',()=>{
+ const {calls,drafts}=run({chat:(v,i)=>i===0?tool('web_search',{query:'AI 自己的搜索词 2026'}):i===1?tool('tmdb_search',{query:'AI 找到的中文名',mediaType:'tv'},'tmdb'):answer(files.map(f=>({...identity(f),sources:['https://example.com/show','javascript:alert(1)']})))});
+ assert.deepEqual(calls.filter(c=>c.name!=='organize.prepare').map(c=>c.name),['ai.chat','ai.web.search','ai.chat','tmdb.search','ai.chat']);
+ assert.equal(calls.find(c=>c.name==='ai.web.search').input.query,'AI 自己的搜索词 2026');assert.equal(drafts[1].recognition.sources,'https://example.com/show');
+ const messages=calls.filter(c=>c.name==='ai.chat')[2].input.messages;assert.equal(messages[2].toolCalls[0].name,'web_search');assert.equal(messages[3].toolCallId,'call');
 });
-
-test('explicit special or later seasons survive; invalid seasons do not default',()=> {
-  for (const season of [0, 3, -1, '1', 10000]) {
-    const {drafts}=run({hints:[hint(files[0]),{...hint(files[1]),season}]});
-    assert.equal(drafts[1].season,season===0 || season===3 ? season : undefined);
-    assert.doesNotMatch(drafts[1].reason,/默认第 1 季/);
-  }
+test('AI can query TMDB first, change search words, or request details',()=>{
+ const {calls}=run({chat:(_,i)=>i===0?tool('tmdb_search',{query:'first',mediaType:'multi'}):i===1?tool('tmdb_search',{query:'second',mediaType:'tv',year:2026},'second'):i===2?tool('tmdb_detail',{id:202,mediaType:'tv'},'detail'):answer(files.map(identity))});
+ assert.deepEqual(calls.filter(c=>c.name==='tmdb.search').map(c=>c.input.query),['first','second']);assert.equal(calls.some(c=>c.name==='ai.web.search'),false);assert.equal(calls.some(c=>c.name==='tmdb.detail'),true);
 });
-test('one batch failure still creates editable drafts for every file',()=> { const drafts=[]; runPlugin(code,{action:'recognize',files,input:{profileId:1},config:{},sdkVersion:'1'}, {'ai.complete':()=>{throw Error('timeout')},'organize.prepare':p=>{drafts.push(p);return null}}); assert.equal(drafts.length,2);assert.ok(drafts.every(d=>d.tmdbId===0)); });
-
-
-test('AI identifies Japanese fullwidth episode filenames before any TMDB lookup',()=> {
-  const file={ref:'tv',name:'天地人 第２２話「真田幸村参上」 - [1440-1920@KFMVFR.NV7-hevc10_q260_u P7][字].mkv',path:'日本剧/天地人 第２２話.mkv'};
-  const identity={...hint(file),name:'天地人',originalTitle:'Tenchijin',aliases:['Ten Chi Jin'],year:2009,season:null,episode:22,reason:'文件名中的剧名和全角集号，结合已有影视知识'};
-  const {drafts,calls}=run({files:[file],hints:[identity],search:()=>[]});
-  const d=drafts[0];assert.equal(d.recognition.title,'天地人');assert.equal(d.recognition.year,2009);assert.equal(d.mediaType,'tv');assert.equal(d.season,1);assert.equal(d.episode,22);assert.equal(d.tmdbId,0);assert.match(d.reason,/AI 已识别作品.*TMDB 未找到/);
-  assert.equal(calls[0].name,'ai.complete');assert.match(calls[0].input.system,/直接依据自身影视知识/);assert.equal(calls.filter(c=>c.name==='ai.complete').length,1);
+test('missing, duplicate and foreign references cannot replace another file',()=>{
+ for(const items of [[identity(files[0])],[identity(files[0]),identity(files[0]),{...identity(files[1]),fileRef:'foreign'}]]){const {drafts}=run({items});assert.equal(drafts[1].tmdbId,0);assert.equal(drafts[1].recognition,undefined);if(items.length>1)assert.equal(drafts[0].tmdbId,0);}
 });
-
-test('AI supplied original titles and aliases are searched without rigid year filtering',()=> {
-  const identity={...hint(files[1]),name:'天地人',originalTitle:'Tenchijin',aliases:['Ten Chi Jin'],year:2009,episode:22,season:null};
-  const {drafts,calls}=run({files:[files[1]],hints:[identity],search:q=>q.query==='Tenchijin'&&q.year===0?[{id:2020202,title:'天地人',originalTitle:'Tenchijin',year:'2009',mediaType:'tv'}]:[]});
-  assert.equal(drafts[0].tmdbId,2020202);assert.equal(drafts[0].episode,22);
-  const queries=calls.filter(c=>c.name==='tmdb.search').map(c=>c.input);assert.equal(queries.length,4);assert.ok(queries.some(q=>q.query==='天地人'&&q.year===0));assert.ok(queries.some(q=>q.query==='Tenchijin'&&q.year===0));
-  const match=JSON.parse(calls.filter(c=>c.name==='ai.complete')[1].input.input);assert.equal(match.items[0].filename,files[1].name);assert.equal(match.items[0].candidates[0].originalTitle,'Tenchijin');
+test('unknown and unlinked identities retain independent output',()=>{
+ const {drafts}=run({items:[{...identity(files[0]),title:'',tmdbId:999,reason:'不认识此作品'},{...identity(files[1]),tmdbId:null}]});
+ assert.equal(drafts[0].tmdbId,0);assert.match(drafts[0].reason,/不认识/);assert.equal(drafts[1].recognition.title,'模型识别的剧名');assert.equal(drafts[1].season,2);assert.match(drafts[1].reason,/已识别，待匹配/);
 });
-
-test('TMDB errors keep identification and season/episode with a distinct failure stage',()=> {
-  const {drafts}=run({search:()=>{throw Error('network failure')}});
-  assert.equal(drafts[1].recognition.title,'tv');assert.equal(drafts[1].season,2);assert.equal(drafts[1].episode,3);assert.match(drafts[1].reason,/TMDB 查询失败/);assert.doesNotMatch(drafts[1].reason,/network failure/);
+test('missing season defaults one, explicit seasons survive, invalid values do not coerce',()=>{
+ for(const season of [null,undefined,0,3,-1,'2',10000]){const {drafts}=run({items:[identity(files[0]),{...identity(files[1]),season,episode:null}]});assert.equal(drafts[1].season,season==null?1:season===0||season===3?season:undefined);assert.equal(drafts[1].episode,undefined);assert.equal(drafts[0].season,undefined);}
 });
-
-test('matching failure retains the independent AI identification',()=> {
-  let round=0;const drafts=[];
-  runPlugin(code,{action:'recognize',files,input:{profileId:1},config:{},sdkVersion:'1'}, {'ai.complete':()=>{if(++round===1)return {content:{items:files.map(hint)}};throw Error('bad matching response')},'tmdb.search':({mediaType})=>[{id:20,title:'candidate',originalTitle:'original',mediaType,year:'2024'}],'organize.prepare':p=>{drafts.push(p);return null}});
-  assert.equal(drafts[1].recognition.title,'tv');assert.equal(drafts[1].episode,3);assert.match(drafts[1].reason,/条目匹配请求失败/);
+test('AI multi-episode decision is retained without truncating a collection',()=>{
+ const {drafts}=run({items:[identity(files[0]),{...identity(files[1]),multiEpisode:true}]});assert.equal(drafts[1].unsupported,true);assert.equal(drafts[1].tmdbId,0);assert.match(drafts[1].reason,/多集合集/);
 });
-
-test('same work reuses query results and an unknown initial type can be resolved by AI',()=> {
-  const chosen=[files[1],{...files[1],ref:'tv2'}];const identities=chosen.map(f=>({...hint(f),name:'Shared',originalTitle:'Shared',aliases:['Alias','Other','Last','Ignored'],mediaType:'unknown'}));
-  const {drafts,calls}=run({files:chosen,hints:identities,choices:chosen.map(f=>({fileRef:f.ref,tmdbId:20,mediaType:'tv',uncertain:false,reason:'同一作品'})),search:()=>[{id:20,title:'Shared',mediaType:'tv',year:'2024'}]});
-  assert.equal(calls.filter(c=>c.name==='tmdb.search').length,4);assert.ok(drafts.every(d=>d.tmdbId===20&&d.mediaType==='tv'));
+test('tool refusal degrades within six rounds and does not pretend to search',()=>{
+ const {calls,drafts}=run({chat:(v,i)=>{if(i===0)return {message:{role:'assistant'},toolsUnavailable:true,usage:{}};assert.equal(v.tools,undefined);return answer(files.map(identity));}});
+ assert.equal(calls.filter(c=>c.name==='ai.chat').length,2);assert.equal(calls.some(c=>c.name==='ai.web.search'),false);assert.match(drafts[1].reason,/查询工具不可用/);
+});
+test('tool failures return to AI without losing direct identification or leaking errors',()=>{
+ const marker='FF_CACHE_SECRET_MARKER';const {drafts,calls}=run({web:()=>{throw Error(marker)},chat:(v,i)=>{if(i===0)return tool('web_search',{query:'q'});assert.equal(JSON.stringify(v).includes(marker),false);return answer(files.map(identity));}});
+ assert.equal(drafts[1].recognition.title,'模型识别的剧名');assert.equal(JSON.stringify({drafts,calls}).includes(marker),false);
+});
+test('malicious and unknown tools never dispatch SDK operations',()=>{
+ for(const [name,args] of [['organize.submit',{confirmed:true}],['http.request',{url:'http://localhost/ff'}],['tmdb_search',JSON.parse('{"query":"x","mediaType":"tv","__proto__":{"p":true}}')],['tmdb_detail',{id:1,mediaType:'tv',url:'http://localhost'}]]){
+  const {calls}=run({chat:(_,i)=>i===0?tool(name,args):answer(files.map(identity))});assert.equal(calls.some(c=>['http.request','organize.submit','tmdb.search','tmdb.detail'].includes(c.name)),false);
+ }
+});
+test('six round limit preserves provisional results and stops further tool work',()=>{
+ const {calls,drafts}=run({chat:(_,i)=>({...tool('tmdb_search',{query:'q',mediaType:'tv'},String(i)),message:{...tool('tmdb_search',{query:'q',mediaType:'tv'},String(i)).message,content:JSON.stringify({items:[identity(files[0])]})}})});
+ assert.equal(calls.filter(c=>c.name==='ai.chat').length,6);assert.equal(calls.filter(c=>c.name==='tmdb.search').length,5);assert.equal(drafts[0].recognition.title,'Film');assert.equal(drafts[1].tmdbId,0);assert.match(drafts[1].reason,/6 轮上限/);
+});
+test('100 files are batched at eight with stable refs and no automatic replay',()=>{
+ const chosen=Array.from({length:100},(_,i)=>({...files[i%2],ref:String(i)}));
+ const {drafts,calls}=run({files:chosen,chat:v=>answer(JSON.parse(v.messages[1].content).files.map(f=>({...identity(f),mediaType:'movie'})))});
+ assert.equal(calls.filter(c=>c.name==='ai.chat').length,13);assert.equal(drafts.length,100);assert.equal(new Set(drafts.map(d=>d.fileRef)).size,100);
+});
+test('full prompt replaces defaults; retired prompts are not appended',()=>{
+ const {calls}=run({config:{prompt:'自定义任务',extractionPrompt:'旧提取策略',selectionPrompt:'旧选择策略'}});assert.equal(calls[0].input.messages[0].content,'自定义任务');
+});
+test('timeout and malformed answers still produce editable rows without exposing exceptions',()=>{
+ const failed=run({chat:()=>{throw Error('secret')}});assert.equal(failed.drafts.length,2);assert.ok(failed.drafts.every(d=>d.tmdbId===0));assert.equal(JSON.stringify(failed).includes('secret'),false);
+ const malformed=run({chat:()=>({message:{role:'assistant',content:'这是某部剧，但无法给出 JSON'},usage:{}})});assert.match(malformed.drafts[0].reason,/这是某部剧/);assert.equal(malformed.drafts[0].tmdbId,0);
 });

@@ -2,7 +2,7 @@
 
 [返回 Wiki](README.md) · [完整 TypeScript 定义](../../sdk/index.d.ts)
 
-所有方法都是工作进程内的同步 JSON RPC。调用失败抛出 `Error`，可用 try/catch 按文件恢复；只有返回正常结果才视为能力调用成功。JSON 返回不含宿主凭据或原始内部对象。SDK 主版本为字符串 `"1"`，当前类型快照包版本为 1.0.0；与模板业务版本 1.1.1 独立。
+所有方法都是工作进程内的同步 JSON RPC。调用失败抛出 `Error`，可用 try/catch 按文件恢复；只有返回正常结果才视为能力调用成功。JSON 返回不含宿主凭据或原始内部对象。SDK 主版本为字符串 `"1"`，当前类型快照包版本为 1.0.0；与模板业务版本 1.2.0 独立。
 
 ## 入口与公共模型
 
@@ -29,7 +29,7 @@ interface MTProfile {
 interface MTProposal {
   fileRef: string; profileId: number; tmdbId: number; mediaType: string;
   season?: number; episode?: number; reason: string; unsupported?: boolean;
-  recognition?: {title:string;originalTitle?:string;year?:number};
+  recognition?: {title:string;originalTitle?:string;year?:number;sources?:string};
 }
 interface MTTask {
   id: number; status: string; error?: string;
@@ -54,7 +54,23 @@ const root = mt.files.roots()[0];
 const page = mt.files.list({rootId: root.id, path: '.', page: 1});
 ```
 
-## ai：模型，权限 ai.complete
+## ai.chat：多轮对话，权限 ai.chat
+
+输入为 {messages, tools?}；messages 使用 role（system/user/assistant/tool）、content、toolCalls（id/name/arguments 字符串）及 toolCallId。tools 使用 name、description、parameters（JSON Schema 对象）。返回 {message, usage, toolsUnavailable?}。参数及返回的完整类型见本页链接的 SDK 定义。
+
+宿主不增加识别提示词，不强制 JSON 模式、查询或工具选择，也不执行函数。作者自行维护对话，把 assistant.toolCalls 交给固定分发器，将对应工具结果以 role=tool 和 toolCallId 送回模型。禁止将工具名称直接映射到任意 SDK 方法。模板源码和 workflow.test.cjs 是完整示例。
+
+每请求最多 96 条消息、16 个工具声明、16 个返回工具调用；输入合计 128 KiB，模型文本最多 128 KiB，工具 Schema 深度最多 16，拒绝原型污染键及 $ref。工具结果必须与此前调用 ID 一一对应。宿主不返回 reasoning_content。
+
+模型明确拒绝工具能力时返回 toolsUnavailable=true，不自动重试或换模型；模板在剩余轮次关闭工具、重新直接询问，并显示降级提示。其他失败抛出脱敏错误。每运行 chat/complete 共享 78 次额度，complete 仍另限 32 次。复用配置热更新、共享限流与取消；不接受插件地址、模型或密钥。
+
+## ai.web.search：公开资料，权限 ai.web.search
+
+调用 mt.ai.web.search({query})，返回 {items:[{title,summary,url}],usage}。query 非空且最多 1000 字节；最多 5 条结果，不下载或执行网页，不接收自定义 URL、请求头。原生搜索与 Tavily 沿用 MT 现有底层服务选择和超时，插件不读取配置或密钥，不调用内置识别 Agent。原生调用失败不在同次查询串联另一个服务。
+
+每运行最多 32 次。MT 未开启联网、权限不足或查询失败时返回脱敏错误，不自动开启配置。授权时明确文件线索和查询词会发送到模型/搜索服务。ai.chat 的函数声明不自动授予此权限。
+
+## ai.complete：结构化模型，权限 ai.complete
 
 ```ts
 const out = mt.ai.complete({

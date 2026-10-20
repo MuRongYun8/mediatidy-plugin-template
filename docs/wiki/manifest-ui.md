@@ -19,10 +19,9 @@
   "entry": "dist/index.js",
   "author": "example",
   "description": "识别文件名，核验后由用户确认整理。",
-  "permissions": ["files.read", "ai.complete", "tmdb.read", "organize.prepare", "organize.submit", "tasks.read", "tasks.cancel"],
+  "permissions": ["files.read", "ai.chat", "ai.web.search", "tmdb.read", "organize.prepare", "organize.submit", "tasks.read", "tasks.cancel"],
   "config": [
-    {"key":"extractionPrompt","label":"第一轮补充策略","type":"textarea","default":""},
-    {"key":"selectionPrompt","label":"候选选择补充策略","type":"textarea","default":""}
+    {"key":"prompt","label":"完整识别提示词（留空使用模板默认任务）","type":"textarea","default":""}
   ],
   "actions": [{"id":"recognize","label":"识别并生成草稿","fields":[
     {"key":"files","label":"文件或目录","type":"files","required":true},

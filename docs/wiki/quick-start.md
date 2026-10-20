@@ -18,7 +18,7 @@ npm run check
 | 路径 | 作用 |
 | --- | --- |
 | `plugin.json` | 标识、版本、能力、动作、配置与结果列 |
-| `src/worker/index.ts` | 同步入口、两轮 AI 提示词、候选映射 |
+| `src/worker/index.ts` | 同步入口、AI 自主对话、受控工具分发、输出映射 |
 | `dist/index.js` | MT 实际安装的预打包 JS，必须提交 |
 | `sdk/` | 从 MT 主仓库生成的固定 SDK 类型与 mock |
 | `tests/` | 无真实凭据的识别流程测试 |
@@ -26,9 +26,9 @@ npm run check
 
 ## 第一次修改
 
-在清单中将 `id` 改为如 `example.my-organizer`，修改 `name`、`author`、`description` 和自己的版本；保留 SDK 主版本 `"1"` 和入口 `dist/index.js`。修改 `src/worker/index.ts` 的提示词或策略，保留按 `fileRef` 配对与真实候选校验。
+在清单中将 `id` 改为如 `example.my-organizer`，修改 `name`、`author`、`description` 和自己的版本；保留 SDK 主版本 `"1"` 和入口 `dist/index.js`。修改 `src/worker/index.ts` 的提示词或策略，保留按 `fileRef` 配对，实际条目由 MT 再核验。
 
-只修改 AI 模板的提示词，也可直接使用现有 `extractionPrompt`／`selectionPrompt` 配置，无需另写 UI。新增长期选项放 `config`，每次运行不同的输入放动作 `fields`，示例见 [清单规范](manifest-ui.md)。
+只修改 AI 模板的提示词，也可直接使用完整 `prompt` 配置（留空恢复默认），无需追加到宿主固定策略，无需另写 UI。新增长期选项放 `config`，每次运行不同的输入放动作 `fields`，示例见 [清单规范](manifest-ui.md)。
 
 ```ts
 /// <reference path="../sdk/index.d.ts" />
@@ -56,7 +56,7 @@ npm test
 const fs = require('node:fs');
 const {runPlugin} = require('./sdk/mock.cjs');
 const code = fs.readFileSync('dist/index.js', 'utf8');
-// input、两轮 AI 返回值和候选结构可直接参考 tests/workflow.test.cjs。
+// input、多轮 ai.chat 工具交互与最终 JSON 结构可直接参考 tests/workflow.test.cjs。
 const {result, calls} = runPlugin(code, input, handlers);
 ```
 
