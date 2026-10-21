@@ -1,16 +1,21 @@
 {
   "name": "mediatidy-plugin-template",
-  "version": "1.2.1",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "typecheck": "node scripts/dev.cjs typecheck",
     "validate": "node scripts/dev.cjs validate",
     "build": "node scripts/dev.cjs build",
-    "test": "node --test tests/ui.test.cjs tests/workflow.test.cjs",
-    "check": "npm run typecheck && npm run validate && npm run build && npm test",
-    "preview": "node scripts/preview.cjs"
+    "test:unit": "node --test tests/ui.test.cjs tests/workflow.test.cjs",
+    "test:goja": "node --test tests/goja.test.cjs",
+    "test": "npm run test:unit && npm run test:goja",
+    "check": "npm run build && npm test",
+    "preview": "node scripts/preview.cjs",
+    "pack": "node scripts/dev.cjs pack",
+    "sync:sdk": "node scripts/sync-sdk.cjs"
   },
   "devDependencies": {
+    "esbuild": "0.25.12",
     "typescript": "5.9.3"
   }
 }

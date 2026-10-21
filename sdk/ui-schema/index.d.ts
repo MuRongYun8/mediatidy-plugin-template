@@ -13,10 +13,10 @@ export type ComponentProps = {
   Checkbox:{label?:string;bind?:Binding}; FilePicker:Record<string,never>; ProfilePicker:{label?:string;bind?:Binding};
   Steps:{labels?:string[];bind?:Binding}; Metric:{label?:string;bind?:Binding;tone?:Tone;filter?:'all'|'ready'|'needs_review'|'submitted'};
   Progress:{label?:string;bind?:Binding;total?:Binding}; Results:{title?:string};
-  Table:{source?:'run.drafts'|'run.result';columns?:TableColumn[];selectable?:boolean}; Details:{label?:string};
+  Table:{source?:'run.drafts'|'run.result';columns?:TableColumn[];selectable?:boolean;selectionBind?:Binding;rowKey?:Binding}; Details:{label?:string};
   Button:{label?:string;action:Event;actionId?:string;tab?:TabID;variant?:'default'|'outline'|'secondary'|'ghost'|'destructive'};
   Status:{bind?:Binding}; EmptyState:{title?:string;description?:string}; Search:{placeholder?:string};
-  Pagination:Record<string,never>; SelectionBar:Record<string,never>; RunHistory:Record<string,never>; ConfigForm:Record<string,never>; ScheduleForm:Record<string,never>; RunLog:Record<string,never>;
+  Pagination:Record<string,never>; SelectionBar:Record<string,never>; RunHistory:Record<string,never>; ConfigForm:Record<string,never>; ScheduleForm:Record<string,never>; RunLog:Record<string,never>; TaskList:Record<string,never>; DataManagement:Record<string,never>;
 };
 export type Component = keyof ComponentProps;
 export type UINode = {[C in Component]:{component:C;props?:ComponentProps[C];children?:UINode[];visibleWhen?:Predicate;disabledWhen?:Predicate}}[Component];

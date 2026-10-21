@@ -2,3 +2,7 @@ node_modules/
 *.tsbuildinfo
 *.log
 .env*
+sdk/bin/
+sdk/preview/
+*.zip
+output/

@@ -1,7 +1,40 @@
 {
   "name": "@mediatidy/plugin-sdk",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "types": "index.d.ts",
-  "main": "mock.cjs"
+  "main": "mock.cjs",
+  "bin": {
+    "mt-plugin": "cli.cjs"
+  },
+  "scripts": {
+    "test": "node --test tests/mock.test.cjs tests/cli.test.cjs",
+    "generate": "node ../scripts/generate-plugin-sdk.cjs",
+    "check:generated": "node ../scripts/generate-plugin-sdk.cjs --check"
+  },
+  "dependencies": {
+    "typescript": "^5.6.3",
+    "esbuild": "^0.25.0"
+  },
+  "files": [
+    "index.d.ts",
+    "mock.cjs",
+    "methods.json",
+    "cli.cjs",
+    "starter/plugin.json",
+    "starter/package.json",
+    "starter/README.md",
+    "starter/tsconfig.json",
+    "starter/src",
+    "starter/dist",
+    "starter/ui",
+    "starter/sdk",
+    "starter/tests",
+    "tests",
+    "ui-schema",
+    "preview",
+    "bin",
+    "docs",
+    "skills"
+  ]
 }

@@ -3,49 +3,69 @@
   "tabs": [
     {
       "id": "overview",
-      "label": "概览",
+      "label": "使用说明",
       "content": [
         {
           "component": "Card",
           "props": {
-            "title": "让复杂文件名变成可靠的整理草稿"
+            "title": "AI 识别，按结论整理",
+            "description": "识别策略、提示词和页面均来自这个独立插件。"
           },
           "children": [
             {
               "component": "Text",
               "props": {
-                "text": "直接让 AI 判断作品和季集；AI 自己决定是否联网、怎样搜索和查询 TMDB。MT 只核验条目和整理授权，不参与识别策略。",
-                "tone": "muted"
-              },
-              "children": []
+                "text": "把原始文件名、相对路径和补充说明交给 AI。AI 自己判断作品和季集，自己决定是否查询资料；识别信息完整后，直接调用 MT 手动整理。"
+              }
             },
             {
-              "component": "Steps",
+              "component": "Stack",
               "props": {
-                "labels": [
-                  "选择文件",
-                  "AI 识别",
-                  "核验修正",
-                  "确认整理"
-                ],
-                "bind": "ui.step"
+                "direction": "row"
               },
-              "children": []
+              "children": [
+                {
+                  "component": "Badge",
+                  "props": {
+                    "text": "选择视频"
+                  }
+                },
+                {
+                  "component": "Badge",
+                  "props": {
+                    "text": "AI 自主识别"
+                  }
+                },
+                {
+                  "component": "Badge",
+                  "props": {
+                    "text": "MT 执行整理"
+                  }
+                }
+              ]
             },
             {
-              "component": "Alert",
+              "component": "Text",
               "props": {
-                "text": "需要已启用的 AI、TMDB 和整理方案。文件线索会发送至模型；授权联网后，查询词还可能发送至配置的搜索服务。"
-              },
-              "children": []
+                "text": "开始前在 MT 配置 AI、TMDB 和整理方案，并为本插件授权目录及方案。直接整理遵循方案的移动、复制、覆盖和清理设置。",
+                "tone": "muted",
+                "size": "sm"
+              }
+            },
+            {
+              "component": "Text",
+              "props": {
+                "text": "每批最多 8 个文件，每次最多 100 个视频。AI 直接回答时，每批一次对话。缺少季数默认第一季，明确的第 0 季保留，集号不猜测。",
+                "tone": "muted",
+                "size": "sm"
+              }
             },
             {
               "component": "Button",
               "props": {
-                "label": "新建识别",
+                "label": "选择文件并开始",
                 "action": "newRun"
-              },
-              "children": []
+              }
             }
           ]
         }
@@ -53,7 +73,7 @@
     },
     {
       "id": "run",
-      "label": "运行",
+      "label": "识别与整理",
       "content": [
         {
           "component": "Stack",
@@ -64,10 +84,9 @@
             {
               "component": "Button",
               "props": {
-                "label": "新建识别",
+                "label": "新建整理",
                 "action": "newRun"
-              },
-              "children": []
+              }
             },
             {
               "component": "Button",
@@ -76,33 +95,18 @@
                 "action": "openTab",
                 "tab": "history",
                 "variant": "outline"
-              },
-              "children": []
+              }
             },
             {
               "component": "Button",
               "props": {
-                "label": "插件设置",
+                "label": "提示词与授权",
                 "action": "openTab",
                 "tab": "settings",
                 "variant": "ghost"
-              },
-              "children": []
+              }
             }
           ]
-        },
-        {
-          "component": "Steps",
-          "props": {
-            "labels": [
-              "选择文件",
-              "AI 识别",
-              "核验修正",
-              "确认整理"
-            ],
-            "bind": "ui.step"
-          },
-          "children": []
         },
         {
           "component": "Grid",
@@ -115,21 +119,19 @@
             {
               "component": "Card",
               "props": {
-                "title": "选择要识别的视频",
-                "description": "可选择多个文件或目录；MT 扫描后最多接受 100 个视频。"
+                "title": "要整理哪些视频",
+                "description": "选择多个文件或目录。目录在 MT 后台扫描，超过 100 个视频时请分批。"
               },
               "children": [
                 {
-                  "component": "FilePicker",
-                  "props": {},
-                  "children": []
+                  "component": "FilePicker"
                 }
               ]
             },
             {
               "component": "Card",
               "props": {
-                "title": "整理方式与识别提示"
+                "title": "按哪个方案执行"
               },
               "children": [
                 {
@@ -137,34 +139,29 @@
                   "props": {
                     "label": "整理方案",
                     "bind": "input.profileId"
-                  },
-                  "children": []
+                  }
                 },
                 {
                   "component": "Textarea",
                   "props": {
-                    "label": "识别补充说明",
+                    "label": "给 AI 的补充说明（可留空）",
                     "bind": "input.instructions",
-                    "placeholder": "例如：这些文件来自同一部剧；也可保留为空。"
-                  },
-                  "children": []
+                    "placeholder": "直接告诉 AI 你知道的线索，无需填写搜索词或识别步骤。"
+                  }
                 },
                 {
                   "component": "Alert",
                   "props": {
-                    "text": "不发送文件内容、下载地址或宿主完整路径；识别不会自动提交整理。",
-                    "tone": "muted"
-                  },
-                  "children": []
+                    "text": "点击后会按 AI 结论直接整理，请先检查所选文件和方案。不会再进入 MT 识别或草稿确认。"
+                  }
                 },
                 {
                   "component": "Button",
                   "props": {
-                    "label": "开始 AI 识别",
+                    "label": "AI 识别并整理",
                     "action": "start",
                     "actionId": "recognize"
                   },
-                  "children": [],
                   "disabledWhen": {
                     "path": "ui.canStart",
                     "op": "falsy"
@@ -173,13 +170,9 @@
                 {
                   "component": "Text",
                   "props": {
-                    "text": "请选择文件或目录及整理方案后开始。",
-                    "tone": "muted"
-                  },
-                  "children": [],
-                  "visibleWhen": {
-                    "path": "ui.canStart",
-                    "op": "falsy"
+                    "text": "仅发送文件名、相对路径和说明；联网工具是否可用取决于你的授权与服务设置。",
+                    "tone": "muted",
+                    "size": "sm"
                   }
                 }
               ]
@@ -193,72 +186,41 @@
         {
           "component": "Progress",
           "props": {
-            "label": "识别与核验进度",
-            "bind": "stats.drafts",
-            "total": "stats.files"
+            "label": "当前进度",
+            "bind": "run.progress.completed",
+            "total": "run.progress.total"
           },
-          "children": [],
           "visibleWhen": {
             "path": "ui.working",
             "op": "truthy"
           }
         },
         {
-          "component": "Grid",
+          "component": "Alert",
           "props": {
-            "columns": 4,
-            "gap": "sm"
+            "bind": "run.error",
+            "tone": "danger"
           },
-          "children": [
-            {
-              "component": "Metric",
-              "props": {
-                "label": "全部文件",
-                "bind": "stats.files",
-                "filter": "all"
-              },
-              "children": []
-            },
-            {
-              "component": "Metric",
-              "props": {
-                "label": "可整理",
-                "bind": "stats.ready",
-                "tone": "success",
-                "filter": "ready"
-              },
-              "children": []
-            },
-            {
-              "component": "Metric",
-              "props": {
-                "label": "待处理",
-                "bind": "stats.review",
-                "tone": "warning",
-                "filter": "needs_review"
-              },
-              "children": []
-            },
-            {
-              "component": "Metric",
-              "props": {
-                "label": "已提交",
-                "bind": "stats.submitted",
-                "tone": "primary",
-                "filter": "submitted"
-              },
-              "children": []
-            }
-          ],
           "visibleWhen": {
-            "path": "ui.hasRun",
+            "path": "run.error",
             "op": "truthy"
           }
         },
         {
-          "component": "Results",
+          "component": "Alert",
           "props": {
-            "title": "识别结果 · 核验后再整理"
+            "bind": "ui.error",
+            "tone": "danger"
+          },
+          "visibleWhen": {
+            "path": "ui.error",
+            "op": "truthy"
+          }
+        },
+        {
+          "component": "Card",
+          "props": {
+            "title": "本次识别与整理"
           },
           "children": [
             {
@@ -268,50 +230,165 @@
               },
               "children": [
                 {
-                  "component": "Button",
+                  "component": "Text",
                   "props": {
-                    "label": "刷新状态",
-                    "action": "refresh",
-                    "variant": "outline"
-                  },
-                  "children": []
+                    "text": "插件版本",
+                    "tone": "muted",
+                    "size": "sm"
+                  }
                 },
                 {
-                  "component": "Button",
+                  "component": "Badge",
                   "props": {
-                    "label": "取消识别",
-                    "action": "cancelRun",
-                    "variant": "outline"
-                  },
-                  "children": [],
-                  "visibleWhen": {
-                    "path": "ui.working",
-                    "op": "truthy"
+                    "bind": "run.pluginVersion"
+                  }
+                },
+                {
+                  "component": "Status",
+                  "props": {
+                    "bind": "run.status"
                   }
                 },
                 {
                   "component": "Button",
                   "props": {
-                    "label": "仅重试待处理项",
-                    "action": "retry",
+                    "label": "刷新状态",
+                    "action": "refresh",
+                    "variant": "outline"
+                  }
+                },
+                {
+                  "component": "Button",
+                  "props": {
+                    "label": "停止后续识别",
+                    "action": "cancelRun",
                     "variant": "outline"
                   },
-                  "children": []
+                  "visibleWhen": {
+                    "path": "ui.working",
+                    "op": "truthy"
+                  }
                 }
               ]
             },
             {
-              "component": "Search",
+              "component": "Grid",
               "props": {
-                "placeholder": "搜索文件、作品或错误…"
+                "columns": 4,
+                "gap": "sm"
               },
-              "children": []
+              "children": [
+                {
+                  "component": "Card",
+                  "props": {
+                    "title": "AI 对话"
+                  },
+                  "children": [
+                    {
+                      "component": "Text",
+                      "props": {
+                        "bind": "run.stats.dialogueRounds",
+                        "size": "xl"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "component": "Card",
+                  "props": {
+                    "title": "实际模型请求"
+                  },
+                  "children": [
+                    {
+                      "component": "Text",
+                      "props": {
+                        "bind": "run.stats.modelRequests",
+                        "size": "xl"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "component": "Card",
+                  "props": {
+                    "title": "联网 / TMDB"
+                  },
+                  "children": [
+                    {
+                      "component": "Stack",
+                      "props": {
+                        "direction": "row"
+                      },
+                      "children": [
+                        {
+                          "component": "Text",
+                          "props": {
+                            "bind": "run.stats.webQueries",
+                            "size": "xl"
+                          }
+                        },
+                        {
+                          "component": "Text",
+                          "props": {
+                            "text": "/",
+                            "tone": "muted",
+                            "size": "sm"
+                          }
+                        },
+                        {
+                          "component": "Text",
+                          "props": {
+                            "bind": "run.stats.tmdbQueries",
+                            "size": "xl"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "component": "Card",
+                  "props": {
+                    "title": "缓存命中"
+                  },
+                  "children": [
+                    {
+                      "component": "Text",
+                      "props": {
+                        "bind": "run.stats.cacheHits",
+                        "size": "xl"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "component": "Text",
+              "props": {
+                "text": "请求统计未记录；目录扫描完成后开始识别。",
+                "tone": "muted",
+                "size": "sm"
+              },
+              "visibleWhen": {
+                "path": "run.stats",
+                "op": "falsy"
+              }
+            },
+            {
+              "component": "Text",
+              "props": {
+                "text": "查询资料后可能继续对话；实际请求包含兼容重发和原生联网。完整识别信息直接入队，未确定的文件留为待处理。",
+                "tone": "muted",
+                "size": "sm"
+              }
             },
             {
               "component": "Table",
               "props": {
-                "source": "run.drafts",
-                "selectable": true,
+                "source": "run.result",
+                "selectionBind": "input.selectedFileRefs",
+                "rowKey": "row.fileRef",
                 "columns": [
                   {
                     "label": "文件",
@@ -319,144 +396,50 @@
                       {
                         "component": "Text",
                         "props": {
-                          "bind": "row.file.name",
+                          "bind": "row.name",
                           "lines": 2
-                        },
-                        "children": []
+                        }
                       },
                       {
                         "component": "Details",
                         "props": {
-                          "label": "文件详情与 AI 依据"
+                          "label": "路径、结论与来源"
                         },
                         "children": [
                           {
                             "component": "Text",
                             "props": {
-                              "text": "完整文件名",
+                              "bind": "row.path",
+                              "size": "sm",
                               "tone": "muted"
-                            },
-                            "children": []
+                            }
                           },
                           {
                             "component": "Text",
                             "props": {
-                              "bind": "row.file.name"
-                            },
-                            "children": []
+                              "bind": "row.reason",
+                              "size": "sm"
+                            }
                           },
                           {
                             "component": "Text",
                             "props": {
-                              "text": "相对路径",
+                              "bind": "row.sources",
+                              "size": "sm",
                               "tone": "muted"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "bind": "row.file.path"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "text": "AI 依据",
-                              "tone": "muted"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "bind": "row.reason"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "text": "公开查询来源",
-                              "tone": "muted"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "bind": "row.recognition.sources"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "text": "整理方案",
-                              "tone": "muted"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "bind": "row.profile.name"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "bind": "row.profile.destination"
-                            },
-                            "children": []
+                            }
                           }
                         ]
                       }
                     ]
                   },
                   {
-                    "label": "AI 识别作品与季集",
+                    "label": "AI 识别结论",
                     "cells": [
                       {
                         "component": "Text",
                         "props": {
-                          "bind": "row.media.title"
-                        },
-                        "children": []
-                      },
-                      {
-                        "component": "Text",
-                        "props": {
-                          "bind": "row.recognition.title"
-                        },
-                        "children": [],
-                        "visibleWhen": {
-                          "path": "row.media.title",
-                          "op": "falsy"
-                        }
-                      },
-                      {
-                        "component": "Stack",
-                        "props": {},
-                        "children": [
-                          {
-                            "component": "Text",
-                            "props": {
-                              "text": "AI 识别 · 条目待匹配",
-                              "tone": "warning"
-                            },
-                            "children": [],
-                            "visibleWhen": {
-                              "path": "row.recognition.title",
-                              "op": "truthy"
-                            }
-                          }
-                        ],
-                        "visibleWhen": {
-                          "path": "row.tmdbId",
-                          "op": "falsy"
+                          "bind": "row.title"
                         }
                       },
                       {
@@ -469,21 +452,8 @@
                           {
                             "component": "Text",
                             "props": {
-                              "bind": "row.media.year",
+                              "bind": "row.year",
                               "tone": "muted"
-                            },
-                            "children": []
-                          },
-                          {
-                            "component": "Text",
-                            "props": {
-                              "bind": "row.recognition.year",
-                              "tone": "muted"
-                            },
-                            "children": [],
-                            "visibleWhen": {
-                              "path": "row.media.year",
-                              "op": "falsy"
                             }
                           },
                           {
@@ -492,8 +462,7 @@
                               "bind": "row.mediaType",
                               "format": "mediaType",
                               "tone": "muted"
-                            },
-                            "children": []
+                            }
                           }
                         ]
                       },
@@ -508,9 +477,9 @@
                             "component": "Text",
                             "props": {
                               "text": "TMDB",
-                              "tone": "muted"
+                              "tone": "muted",
+                              "size": "sm"
                             },
-                            "children": [],
                             "visibleWhen": {
                               "path": "row.tmdbId",
                               "op": "truthy"
@@ -521,102 +490,83 @@
                             "props": {
                               "bind": "row.tmdbId",
                               "tone": "muted"
-                            },
-                            "children": [],
-                            "visibleWhen": {
-                              "path": "row.tmdbId",
-                              "op": "truthy"
                             }
                           },
                           {
                             "component": "Text",
                             "props": {
                               "bind": "row.seasonEpisode"
-                            },
-                            "children": []
+                            }
                           }
                         ]
+                      },
+                      {
+                        "component": "Text",
+                        "props": {
+                          "bind": "row.warning",
+                          "size": "sm",
+                          "tone": "warning"
+                        }
                       }
                     ]
                   },
                   {
-                    "label": "核验与整理状态",
+                    "label": "整理状态",
                     "cells": [
                       {
                         "component": "Status",
                         "props": {
-                          "bind": "row.displayStatus"
-                        },
-                        "children": []
+                          "bind": "row.status"
+                        }
                       },
                       {
                         "component": "Text",
                         "props": {
                           "bind": "row.error",
+                          "size": "sm",
                           "tone": "danger"
-                        },
-                        "children": []
+                        }
                       },
                       {
                         "component": "Text",
                         "props": {
-                          "bind": "row.reason",
-                          "format": "defaultSeason",
-                          "tone": "warning"
+                          "text": "已交给 MT，实际进度见下方业务任务。",
+                          "tone": "muted",
+                          "size": "sm"
                         },
-                        "children": []
-                      }
-                    ]
-                  },
-                  {
-                    "label": "操作",
-                    "cells": [
-                      {
-                        "component": "Button",
-                        "props": {
-                          "label": "修正",
-                          "action": "editDraft",
-                          "variant": "outline"
-                        },
-                        "children": [],
                         "visibleWhen": {
-                          "path": "row.canEdit",
-                          "op": "truthy"
-                        }
-                      },
-                      {
-                        "component": "Button",
-                        "props": {
-                          "label": "取消整理",
-                          "action": "cancelTask",
-                          "variant": "ghost"
-                        },
-                        "children": [],
-                        "visibleWhen": {
-                          "path": "row.canCancel",
+                          "path": "row.taskRef",
                           "op": "truthy"
                         }
                       }
                     ]
                   }
                 ]
+              }
+            },
+            {
+              "component": "Button",
+              "props": {
+                "label": "重试所选待处理文件",
+                "action": "start",
+                "actionId": "retry-pending",
+                "variant": "outline"
               },
-              "children": []
+              "disabledWhen": {
+                "path": "ui.working",
+                "op": "truthy"
+              }
             },
             {
-              "component": "Pagination",
-              "props": {},
-              "children": []
+              "component": "Text",
+              "props": {
+                "text": "跨页选择后重试；已提交及提交结果不明的文件自动排除。停止识别不会撤销已入队的整理，可在业务任务中单独取消。",
+                "tone": "muted",
+                "size": "sm"
+              }
             },
             {
-              "component": "SelectionBar",
-              "props": {},
-              "children": []
-            },
-            {
-              "component": "RunLog",
-              "props": {},
-              "children": []
+              "component": "RunLog"
             }
           ],
           "visibleWhen": {
@@ -627,14 +577,16 @@
         {
           "component": "EmptyState",
           "props": {
-            "title": "从选择一组视频开始",
-            "description": "识别结果会逐步出现在这里。待处理项可以修正；核验通过后仍需你确认。"
+            "title": "从一组视频开始",
+            "description": "AI 负责识别，MT 按识别参数执行手动整理。每个文件单独对应作品和任务。"
           },
-          "children": [],
           "visibleWhen": {
             "path": "ui.hasRun",
             "op": "falsy"
           }
+        },
+        {
+          "component": "TaskList"
         }
       ]
     },
@@ -643,25 +595,41 @@
       "label": "运行记录",
       "content": [
         {
-          "component": "RunHistory",
-          "props": {},
-          "children": []
+          "component": "RunHistory"
+        },
+        {
+          "component": "TaskList"
         }
       ]
     },
     {
       "id": "settings",
-      "label": "设置",
+      "label": "插件设置",
       "content": [
         {
-          "component": "ConfigForm",
-          "props": {},
-          "children": []
+          "component": "Card",
+          "props": {
+            "title": "识别策略由你决定"
+          },
+          "children": [
+            {
+              "component": "Text",
+              "props": {
+                "text": "完整提示词可直接编辑，留空使用插件默认值。不会拼接旧的提取、筛选或复核提示词。定时运行同样会直接整理，请检查授权后再启用。",
+                "tone": "muted",
+                "size": "sm"
+              }
+            }
+          ]
         },
         {
-          "component": "ScheduleForm",
-          "props": {},
-          "children": []
+          "component": "ConfigForm"
+        },
+        {
+          "component": "ScheduleForm"
+        },
+        {
+          "component": "DataManagement"
         }
       ]
     }

@@ -1,0 +1,544 @@
+{
+  "sdkVersion": "2",
+  "methods": [
+    {
+      "name": "ai.capabilities",
+      "permission": "",
+      "limit": 500,
+      "input": "void",
+      "output": "{chat:MTAvailability;webSearch:MTAvailability;tmdb:MTAvailability}"
+    },
+    {
+      "name": "ai.chat",
+      "permission": "ai.chat",
+      "limit": 78,
+      "input": "{messages:MTMessage[];tools?:MTTool[];fileRefs?:string[]}",
+      "output": "{message:MTMessage;usage:MTUsage;toolsUnavailable?:boolean;metrics:MTMetrics}"
+    },
+    {
+      "name": "ai.complete",
+      "permission": "ai.complete",
+      "limit": 32,
+      "input": "{system:string;input:string;schema?:Record<string,MTJSON>}",
+      "output": "{content:MTJSON;usage:MTUsage}"
+    },
+    {
+      "name": "ai.web.search",
+      "permission": "ai.web.search",
+      "limit": 32,
+      "input": "{query:string}",
+      "output": "{items:{title:string;summary:string;url:string}[];usage:MTUsage;metrics:MTMetrics}"
+    },
+    {
+      "name": "config.get",
+      "permission": "",
+      "limit": 500,
+      "input": "void",
+      "output": "Record<string,MTJSON>"
+    },
+    {
+      "name": "files.batch",
+      "permission": "files.write",
+      "limit": 500,
+      "input": "{idempotencyKey:string;items:MTFileMutation[]}",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.copy",
+      "permission": "files.write",
+      "limit": 500,
+      "input": "MTMutation",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.delete",
+      "permission": "files.delete",
+      "limit": 500,
+      "input": "MTMutation",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.list",
+      "permission": "files.read",
+      "limit": 500,
+      "input": "MTSelection & {page:number}",
+      "output": "{items:MTFile[];hasMore:boolean}"
+    },
+    {
+      "name": "files.mkdir",
+      "permission": "files.write",
+      "limit": 500,
+      "input": "MTMutation",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.move",
+      "permission": "files.write",
+      "limit": 500,
+      "input": "MTMutation",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.readText",
+      "permission": "files.read",
+      "limit": 500,
+      "input": "{ref:string}",
+      "output": "{text:string;version:string}"
+    },
+    {
+      "name": "files.rename",
+      "permission": "files.write",
+      "limit": 500,
+      "input": "MTMutation",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.roots",
+      "permission": "files.read",
+      "limit": 500,
+      "input": "void",
+      "output": "MTRoot[]"
+    },
+    {
+      "name": "files.scan",
+      "permission": "files.read",
+      "limit": 500,
+      "input": "MTScan",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.search",
+      "permission": "files.read",
+      "limit": 500,
+      "input": "MTScan",
+      "output": "MTTask"
+    },
+    {
+      "name": "files.stat",
+      "permission": "files.read",
+      "limit": 500,
+      "input": "MTSelection",
+      "output": "MTFile"
+    },
+    {
+      "name": "files.writeText",
+      "permission": "files.write",
+      "limit": 500,
+      "input": "MTMutation",
+      "output": "MTTask"
+    },
+    {
+      "name": "http.request",
+      "permission": "http.request",
+      "limit": 50,
+      "input": "MTHTTPInput",
+      "output": "{status:number;headers:Record<string,string>;body:string}"
+    },
+    {
+      "name": "log",
+      "permission": "",
+      "limit": 500,
+      "input": "{level?:'info'|'warn'|'error';message:string}",
+      "output": "boolean"
+    },
+    {
+      "name": "media.parse",
+      "permission": "media.parse",
+      "limit": 500,
+      "input": "{name:string}",
+      "output": "MTMediaIdentity"
+    },
+    {
+      "name": "media.recognize",
+      "permission": "media.recognize",
+      "limit": 100,
+      "input": "{fileRef:string}",
+      "output": "MTMediaIdentity"
+    },
+    {
+      "name": "notification.send",
+      "permission": "notification.send",
+      "limit": 10,
+      "input": "{channelId:string;title:string;content:string}",
+      "output": "boolean"
+    },
+    {
+      "name": "organize.manual.prepare",
+      "permission": "organize.prepare",
+      "limit": 500,
+      "input": "MTProposal",
+      "output": "MTDraft | {items:MTDraft[]}"
+    },
+    {
+      "name": "organize.manual.prepareBatch",
+      "permission": "organize.prepare",
+      "limit": 100,
+      "input": "{items:MTProposal[]}",
+      "output": "{items:MTDraft[]}"
+    },
+    {
+      "name": "organize.manual.run",
+      "permission": "organize.manual.run",
+      "limit": 100,
+      "input": "MTManualOrganize",
+      "output": "MTTask"
+    },
+    {
+      "name": "organize.profile",
+      "permission": "organize.read",
+      "limit": 500,
+      "input": "{id:number}",
+      "output": "MTProfile"
+    },
+    {
+      "name": "organize.profiles",
+      "permission": "organize.read",
+      "limit": 500,
+      "input": "void",
+      "output": "MTProfile[]"
+    },
+    {
+      "name": "organize.run",
+      "permission": "organize.run",
+      "limit": 500,
+      "input": "MTProfileRun",
+      "output": "MTTask"
+    },
+    {
+      "name": "quality.compare",
+      "permission": "quality.compare",
+      "limit": 500,
+      "input": "MTQualityInput & {otherRef:string}",
+      "output": "MTQualityComparison"
+    },
+    {
+      "name": "quality.evaluate",
+      "permission": "quality.evaluate",
+      "limit": 500,
+      "input": "MTQualityInput",
+      "output": "MTQualitySummary"
+    },
+    {
+      "name": "quality.evaluateBatch",
+      "permission": "quality.evaluate",
+      "limit": 500,
+      "input": "{fileRefs:string[];profileId:number}",
+      "output": "{items:{fileRef:string;summary?:MTQualitySummary;error?:MTError}[];interrupted:boolean}"
+    },
+    {
+      "name": "quality.prepare",
+      "permission": "quality.prepare",
+      "limit": 500,
+      "input": "{fileRefs:string[];profileId:number;idempotencyKey:string}",
+      "output": "MTTask"
+    },
+    {
+      "name": "quality.upgrade",
+      "permission": "quality.compare",
+      "limit": 500,
+      "input": "MTQualityInput & {otherRef:string}",
+      "output": "{comparison:MTQualityComparison;shouldUpgrade:boolean}"
+    },
+    {
+      "name": "records.list",
+      "permission": "records.read",
+      "limit": 500,
+      "input": "{kind:'organize'|'failure'|'strm';profileId:number;cursor?:string;limit?:number}",
+      "output": "MTPage<MTBusinessRecord>"
+    },
+    {
+      "name": "rules.effective",
+      "permission": "rules.read",
+      "limit": 500,
+      "input": "{profileId:number;mediaType?:'movie'|'tv';categoryPath?:string;categoryRuleKey?:string}",
+      "output": "{profile:MTProfile;rules:MTRule[];selection:{namingRuleId:string;qualityRuleId:string;routedRuleId:string};revision:string}"
+    },
+    {
+      "name": "rules.get",
+      "permission": "rules.read",
+      "limit": 500,
+      "input": "{id:string;family?:string}",
+      "output": "MTRule"
+    },
+    {
+      "name": "rules.list",
+      "permission": "rules.read",
+      "limit": 500,
+      "input": "{family?:string;offset?:number;limit?:number}",
+      "output": "MTOffsetPage<MTRule>"
+    },
+    {
+      "name": "runtime.capabilities",
+      "permission": "",
+      "limit": 500,
+      "input": "void",
+      "output": "MTCapability[]"
+    },
+    {
+      "name": "runtime.checkpoint",
+      "permission": "",
+      "limit": 500,
+      "input": "void",
+      "output": "boolean"
+    },
+    {
+      "name": "runtime.info",
+      "permission": "",
+      "limit": 500,
+      "input": "void",
+      "output": "MTRuntime"
+    },
+    {
+      "name": "runtime.progress",
+      "permission": "",
+      "limit": 500,
+      "input": "MTProgress",
+      "output": "boolean"
+    },
+    {
+      "name": "runtime.resources",
+      "permission": "",
+      "limit": 500,
+      "input": "void",
+      "output": "MTResources"
+    },
+    {
+      "name": "runtime.result",
+      "permission": "",
+      "limit": 500,
+      "input": "{value:MTJSON}",
+      "output": "boolean"
+    },
+    {
+      "name": "secrets.get",
+      "permission": "secrets.use",
+      "limit": 30,
+      "input": "{key:string}",
+      "output": "{value:string}"
+    },
+    {
+      "name": "storage.batch",
+      "permission": "storage",
+      "limit": 500,
+      "input": "{operations:MTStorageOperation[]}",
+      "output": "MTStorageEntry[]"
+    },
+    {
+      "name": "storage.delete",
+      "permission": "storage",
+      "limit": 500,
+      "input": "{key:string;expectedRevision?:string}",
+      "output": "MTStorageEntry"
+    },
+    {
+      "name": "storage.get",
+      "permission": "storage",
+      "limit": 500,
+      "input": "{key:string;expectedRevision?:string}",
+      "output": "MTStorageEntry"
+    },
+    {
+      "name": "storage.list",
+      "permission": "storage",
+      "limit": 500,
+      "input": "{prefix?:string;cursor?:string;limit?:number;values?:boolean}",
+      "output": "MTPage<MTStorageEntry>"
+    },
+    {
+      "name": "storage.set",
+      "permission": "storage",
+      "limit": 500,
+      "input": "MTStorageWrite",
+      "output": "MTStorageEntry"
+    },
+    {
+      "name": "storage.usage",
+      "permission": "storage",
+      "limit": 500,
+      "input": "void",
+      "output": "MTStorageUsage"
+    },
+    {
+      "name": "strm.cleanup",
+      "permission": "strm.cleanup",
+      "limit": 10,
+      "input": "MTProfileRun",
+      "output": "MTTask"
+    },
+    {
+      "name": "strm.preview",
+      "permission": "strm.read",
+      "limit": 500,
+      "input": "MTProfileRun",
+      "output": "MTTask"
+    },
+    {
+      "name": "strm.profile",
+      "permission": "strm.read",
+      "limit": 500,
+      "input": "{id:number}",
+      "output": "MTProfile"
+    },
+    {
+      "name": "strm.profiles",
+      "permission": "strm.read",
+      "limit": 500,
+      "input": "void",
+      "output": "MTProfile[]"
+    },
+    {
+      "name": "strm.run",
+      "permission": "strm.run",
+      "limit": 10,
+      "input": "MTProfileRun",
+      "output": "MTTask"
+    },
+    {
+      "name": "strm.verify",
+      "permission": "strm.run",
+      "limit": 10,
+      "input": "MTProfileRun",
+      "output": "MTTask"
+    },
+    {
+      "name": "system.config",
+      "permission": "system.read",
+      "limit": 500,
+      "input": "void",
+      "output": "MTSystemConfig"
+    },
+    {
+      "name": "system.info",
+      "permission": "system.read",
+      "limit": 500,
+      "input": "void",
+      "output": "{version:string;sdkVersion:'2'}"
+    },
+    {
+      "name": "tasks.cancel",
+      "permission": "tasks.cancel",
+      "limit": 500,
+      "input": "{ref:string}",
+      "output": "boolean"
+    },
+    {
+      "name": "tasks.get",
+      "permission": "tasks.read",
+      "limit": 500,
+      "input": "{ref:string}",
+      "output": "MTTask"
+    },
+    {
+      "name": "tasks.items",
+      "permission": "tasks.read",
+      "limit": 500,
+      "input": "{ref:string;offset?:number;limit?:number}",
+      "output": "MTOffsetPage<MTTaskItem>"
+    },
+    {
+      "name": "tasks.list",
+      "permission": "tasks.read",
+      "limit": 500,
+      "input": "{cursor?:string;limit?:number}",
+      "output": "MTPage<MTTask>"
+    },
+    {
+      "name": "tasks.wait",
+      "permission": "tasks.wait",
+      "limit": 500,
+      "input": "{refs:string[];completion?:MTRunRequest}",
+      "output": "{waiting:boolean}"
+    },
+    {
+      "name": "tmdb.detail",
+      "permission": "tmdb.read",
+      "limit": 500,
+      "input": "{id:number;mediaType:'movie'|'tv'}",
+      "output": "MTCandidate"
+    },
+    {
+      "name": "tmdb.search",
+      "permission": "tmdb.read",
+      "limit": 500,
+      "input": "{query:string;mediaType:'movie'|'tv';year?:number}",
+      "output": "MTCandidate[]"
+    },
+    {
+      "name": "tmdb.season",
+      "permission": "tmdb.read",
+      "limit": 500,
+      "input": "{id:number;season:number}",
+      "output": "number[]"
+    },
+    {
+      "name": "triggers.events.create",
+      "permission": "events.subscribe",
+      "limit": 100,
+      "input": "Omit<MTEventSubscription,'id'|'instanceId'|'revision'>",
+      "output": "MTEventSubscription"
+    },
+    {
+      "name": "triggers.events.delete",
+      "permission": "events.subscribe",
+      "limit": 100,
+      "input": "{id:string}",
+      "output": "boolean"
+    },
+    {
+      "name": "triggers.events.list",
+      "permission": "events.subscribe",
+      "limit": 100,
+      "input": "void",
+      "output": "MTEventSubscription[]"
+    },
+    {
+      "name": "triggers.events.pause",
+      "permission": "events.subscribe",
+      "limit": 100,
+      "input": "{id:string}",
+      "output": "MTEventSubscription"
+    },
+    {
+      "name": "triggers.events.update",
+      "permission": "events.subscribe",
+      "limit": 100,
+      "input": "MTEventSubscription",
+      "output": "MTEventSubscription"
+    },
+    {
+      "name": "triggers.schedules.create",
+      "permission": "triggers.manage",
+      "limit": 500,
+      "input": "MTScheduleCreate",
+      "output": "MTSchedule"
+    },
+    {
+      "name": "triggers.schedules.delete",
+      "permission": "triggers.manage",
+      "limit": 500,
+      "input": "{id:string}",
+      "output": "boolean"
+    },
+    {
+      "name": "triggers.schedules.list",
+      "permission": "triggers.manage",
+      "limit": 500,
+      "input": "void",
+      "output": "MTSchedule[]"
+    },
+    {
+      "name": "triggers.schedules.pause",
+      "permission": "triggers.manage",
+      "limit": 500,
+      "input": "{id:string}",
+      "output": "MTSchedule"
+    },
+    {
+      "name": "triggers.schedules.update",
+      "permission": "triggers.manage",
+      "limit": 500,
+      "input": "MTSchedule",
+      "output": "MTSchedule"
+    }
+  ]
+}

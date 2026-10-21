@@ -84,7 +84,9 @@
     "Table": {
       "source": "source",
       "columns": "tableColumns",
-      "selectable": "boolean"
+      "selectable": "boolean",
+      "selectionBind": "editable",
+      "rowKey": "binding"
     },
     "Details": {
       "label": "text"
@@ -111,7 +113,9 @@
     "RunHistory": {},
     "ConfigForm": {},
     "ScheduleForm": {},
-    "RunLog": {}
+    "RunLog": {},
+    "TaskList": {},
+    "DataManagement": {}
   },
   "enums": {
     "direction": [

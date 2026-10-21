@@ -61,6 +61,7 @@ function validatePage(page, actions = []) {
     const inside=inResults||n.component==='Results';
     if(['Search','Pagination','SelectionBar'].includes(n.component)&&!inside)fail();
     if(n.component==='Table'&&n.props?.source==='run.drafts'&&!inside)fail();
+    if(n.component==='Table'&&(n.props?.selectionBind||n.props?.rowKey)&& (n.props.source!=='run.result'||!/^input\.[A-Za-z][A-Za-z0-9_]*$/.test(n.props.selectionBind||'')||!/^row\./.test(n.props.rowKey||'')))fail();
     if(n.component==='Results'){
       let tables=0;const scan=x=>{if(x.component==='Results'&&x!==n)fail();if(x.component==='Table'){if(x.props?.source!=='run.drafts')fail();tables++}for(const child of x.children||[])scan(child)};scan(n);if(tables!==1)fail();
     }

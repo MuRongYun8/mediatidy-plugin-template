@@ -1,0 +1,14 @@
+{
+  "sdkVersion": "2",
+  "source": "MediaTidy plugin-sdk",
+  "sha256": {
+    "index.d.ts": "a49c3612a6466e54715d34ea85582ce29c884e04656ed28f04ab2ce146b136b1",
+    "methods.json": "7cbf2a22db32be03eb280389a423a843176efc053f8e1a2f915440e8224845ec",
+    "mock.cjs": "30acaa8640acd25ace2a2dfb2b4ce2cb190fee1c67373aae3ab38a6a678ad682",
+    "cli.cjs": "3f2eb863b9a3e649ea898dba11bab16d9a4f3b8400e422e2e89954964649bfc1",
+    "package.json": "ef68a8bc7fe67b3e33589a49e8023fb7fb17761cb00211321457516191ec4fa5",
+    "ui-schema/index.cjs": "545b9de0a1a257d7d76c1f34ebd2bf2c7d733eca8137c9171f854be7259d1d80",
+    "ui-schema/index.d.ts": "0eb11c714aaac6bb185157ff3c38fd0213f85f400a2e58324cecb4241292b202",
+    "ui-schema/registry.json": "5b131dce74d72e400142d366d8375e9be1626f66f67895b3ad5e1b5645c51899"
+  }
+}
