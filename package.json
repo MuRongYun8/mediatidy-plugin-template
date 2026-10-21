@@ -1,6 +1,6 @@
 {
   "name": "mediatidy-plugin-template",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "scripts": {
     "typecheck": "node scripts/dev.cjs typecheck",

@@ -2,7 +2,7 @@
 
 [返回 Wiki](README.md) · [完整 TypeScript 定义](../../sdk/index.d.ts)
 
-所有方法都是工作进程内的同步 JSON RPC。调用失败抛出 `Error`，可用 try/catch 按文件恢复；只有返回正常结果才视为能力调用成功。JSON 返回不含宿主凭据或原始内部对象。SDK 主版本为字符串 `"1"`，当前类型快照包版本为 1.0.0；与模板业务版本 1.2.0 独立。
+所有方法都是工作进程内的同步 JSON RPC。调用失败抛出 `Error`，可用 try/catch 按文件恢复；只有返回正常结果才视为能力调用成功。JSON 返回不含宿主凭据或原始内部对象。SDK 主版本为字符串 `"1"`，当前类型快照包版本为 1.0.0；与模板业务版本 1.2.1 独立。
 
 ## 入口与公共模型
 
@@ -53,6 +53,12 @@ page 从 1 开始，每页 100；path 使用 `.` 表示授权根。分页完成�
 const root = mt.files.roots()[0];
 const page = mt.files.list({rootId: root.id, path: '.', page: 1});
 ```
+
+## ai.capabilities：只读可用性
+
+`mt.ai.capabilities()` 不发送探测请求，返回 `{chat,webSearch,tmdb}`。每项为 `{available:boolean,reason}`，reason 只可能为 available、disabled、not_configured、not_granted、unavailable。无需新增权限，但只反映本插件已声明且获准的 ai.chat、ai.web.search、tmdb.read；仍检查插件启用、安装修订与许可证，不返回任何服务配置或密钥。
+
+这是 SDK v1 的新增方法，必须先更新对应 MT 宿主。状态只供插件决定是否声明工具，不能替代实际调用时的后端检查。
 
 ## ai.chat：多轮对话，权限 ai.chat
 
@@ -155,3 +161,12 @@ catch { mt.log({level:'warn',message:'该文件识别失败，可稍后重试'})
 分别需要 quality.evaluate/quality.compare 授权与方案授权，文件引用必须来自本插件当前运行。每天 UTC 合计 200 个文件，重启和新建运行不重置。拒绝自定义公式、权重、SHA1、FF 字段名和缓存查询；只读取已有缓存，缺失时按文件名评分。错误不会返回 FF 节点和缓存正文。AI 模板不申请这些权限。
 
 `recognition` 是插件 AI 识别出的作品描述，未匹配条目时仍可展示和搜索；服务端限制长度，不能替代 `media`、实际 ID、季集核验或用户确认。
+
+
+## 请求计量与查询复用（v1.2.1）
+
+`ai.chat` 可传 `fileRefs:string[]` 标注当前分析批次，宿主验证属于本次授权文件且无重复，更新批次与文件统计；不把这些额外字段转发模型。文本内容仍由作者决定，不预处理文件名。
+
+chat/web.search 返回可选 metrics：`{modelRequests,nativeWebRequests,compatibilityRetries,usage?,usageIncomplete?}`。宿主独立从传输层汇总，错误调用也统计，不信任插件自报计数。未返回 usage 与明确的零用量不同；部分请求缺用量时 usageIncomplete=true。旧 complete 接口继续兼容，旧运行不追溯补算。
+
+`ai.web.search`、`tmdb.search/detail/season` 的成功结果按方法和参数在运行内复用，JSON 键顺序不影响缓存；查询词原样保持。缓存命中仍检查权限、修订、许可证及当前服务状态，并计入能力配额，但不增加实际查询和模型请求。失败/取消不缓存，缓存不持久化、不跨运行或插件，最多 4 MiB。运行完成后不保留这份查询缓存，最终整理草稿核验独立执行。

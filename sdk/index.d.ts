@@ -5,6 +5,8 @@ interface MTCandidate { id: number; title: string; originalTitle: string; year: 
 interface MTRecognition { title: string; originalTitle?: string; year?: number; sources?: string }
 interface MTToolCall { id: string; name: string; arguments: string }
 interface MTMessage { role: 'system' | 'user' | 'assistant' | 'tool'; content?: string; toolCallId?: string; toolCalls?: MTToolCall[] }
+interface MTAvailability { available: boolean; reason: 'available' | 'disabled' | 'not_configured' | 'not_granted' | 'unavailable' }
+interface MTRequestMetrics { modelRequests: number; nativeWebRequests: number; compatibilityRetries: number; usageIncomplete?: boolean; usage?: Record<string, number> }
 interface MTTool { name: string; description: string; parameters: Record<string, unknown> }
 interface MTProposal { fileRef: string; profileId: number; tmdbId: number; mediaType: string; season?: number; episode?: number; reason: string; unsupported?: boolean; recognition?: MTRecognition }
 interface MTProfile { id: number; name: string; destination: string; transferType: string; storageType: string; enabled: boolean }
@@ -22,9 +24,10 @@ interface MTSDK {
     stat(input: { rootId: string; path: string }): MTFile;
   };
   ai: {
+    capabilities(): { chat: MTAvailability; webSearch: MTAvailability; tmdb: MTAvailability };
     complete(input: { system: string; input: string; schema?: Record<string, unknown> }): { content: unknown; usage: Record<string, number> };
-    chat(input: { messages: MTMessage[]; tools?: MTTool[] }): { message: MTMessage; usage: Record<string, number>; toolsUnavailable?: boolean };
-    web: { search(input: { query: string }): { items: { title: string; summary: string; url: string }[]; usage: Record<string, number> } };
+    chat(input: { messages: MTMessage[]; tools?: MTTool[]; fileRefs?: string[] }): { message: MTMessage; usage: Record<string, number>; toolsUnavailable?: boolean; metrics?: MTRequestMetrics };
+    web: { search(input: { query: string }): { items: { title: string; summary: string; url: string }[]; usage: Record<string, number>; metrics?: MTRequestMetrics } };
   };
   tmdb: {
     search(input: { query: string; mediaType: string; year?: number }): MTCandidate[];
