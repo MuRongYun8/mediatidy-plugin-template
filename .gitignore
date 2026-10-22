@@ -6,3 +6,10 @@ sdk/bin/
 sdk/preview/
 *.zip
 output/
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+build/
+dist/
