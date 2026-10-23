@@ -79,15 +79,13 @@ test('host verification exposes recognized work and validation error for histori
   assert.equal(cells[1], 'Example\nTMDB · 123 · S5 E1');
   assert.equal(cells[2], '需人工处理\n无法核验目标季');
   assert.equal(cells[3], '文件名明确标注 S05E01。');
-  assert.equal(evaluate(model, table.props.visible), false);
-  assert.equal(evaluate(model, results.children.find(n => n.component === 'Details').props.visible), true);
+  assert.equal(evaluate(model, table.props.visible), true);
 });
 
 test('partial draft preparation keeps unmatched AI results visible', () => {
   const model = { run: { drafts: [{ id: 'one' }], result: [{ name: 'one' }, { name: 'two', status: 'needs_review' }] } };
   assert.equal(evaluate(model, draftSection.props.visible), true);
   assert.equal(evaluate(model, table.props.visible), true);
-  assert.equal(evaluate(model, results.children.find(n => n.component === 'Details').props.visible), false);
 });
 
 test('submitted drafts show final task state instead of suggesting the file is still queued', () => {
@@ -113,5 +111,18 @@ test('unknown identity is skipped without asking for manual processing or showin
 test('published batch shows recognition completed while waiting to organize', () => {
   const cells = visibleCells({ name: 'Example.mkv', title: 'Example', status: 'recognized', recognitionStatus: 'recognized', detail: { identity: {tmdbId: 123} } });
   assert.match(cells[2], /AI 识别完成/);
-  assert.match(cells[2], /识别完成，待整理/);
+  assert.match(cells[2], /识别完成，待核对/);
+});
+
+
+test('verification failure preserves AI identity, timing and clickable search source', () => {
+  const row={name:'Antonia.mkv', title:"Antonia's Line", status:'verification_failed', recognitionStatus:'recognized',
+    error:'AI 返回 Antonia，但 ID 754 对应变脸', detail:{identity:{tmdbId:754},metadataCheckMs:15,
+    sourceMarkdown:'[TMDB 搜索依据](https://www.themoviedb.org/movie/754)'}};
+  const cells=visibleCells(row);
+  assert.match(cells[1],/Antonia/);
+  assert.match(cells[2],/AI 识别完成/);
+  assert.match(cells[2],/核对失败，已跳过/);
+  assert.match(cells[2],/元数据核对：15 ms/);
+  assert.match(cells[3],/https:\/\/www.themoviedb.org\/movie\/754/);
 });

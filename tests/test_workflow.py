@@ -14,7 +14,17 @@ def file(ref, *, directory=False):
 
 
 def identity(ref):
-    return {"fileRef": ref, "title": "Example", "mediaType": "movie", "tmdbId": 123, "reason": "Matched"}
+    return {"fileRef": ref, "title": "Example", "mediaType": "movie", "tmdbId": 123, "reason": "Matched", "originalTitle":"Example", "year":2024, "sources":["https://www.themoviedb.org/movie/123"]}
+
+
+def searched(response):
+    if "nativeWebSearch" in response:
+        return response
+    try:
+        items = json.loads(response.get("message", {}).get("content", ""))["items"]
+    except (ValueError, KeyError, TypeError):
+        items = []
+    return {**response, "nativeWebSearch":{"performed":True,"sources":[{"title":"TMDB","url":url} for item in items if isinstance(item,dict) for url in item.get("sources", [])]}}
 
 
 class Host:
@@ -31,6 +41,7 @@ class Host:
         self.file_errors = {}
         self.checkpoint_error = None
         self.seasons = {}
+        self.details = {}
 
     def call(self, invocation, method, args):
         self.calls.append((method, deepcopy(args)))
@@ -53,14 +64,17 @@ class Host:
                 response = self.chat_results.pop(0)
                 if isinstance(response, Exception):
                     raise response
-                return response
+                return searched(response)
             if self.replies:
-                return {"message": self.replies.pop(0)}
-            return {"message": {"role": "assistant", "content": json.dumps({"items": [identity(ref) for ref in args["fileRefs"]]})}}
+                return searched({"message": self.replies.pop(0)})
+            return searched({"message": {"role": "assistant", "content": json.dumps({"items": [identity(ref) for ref in args["fileRefs"]]})}})
         elif method == "ai.web.search":
             return {"items": [{"title": "Example", "url": "https://example.invalid/result"}]}
         elif method == "tmdb.detail":
-            return {"id": args["id"], "title": "Example", "mediaType": args["mediaType"]}
+            result = self.details.get((args["mediaType"], args["id"]), {"id": args["id"], "title": "Example", "originalTitle":"Example", "year":"2024", "mediaType": args["mediaType"]})
+            if isinstance(result, Exception):
+                raise result
+            return result
         elif method == "tmdb.season":
             result = self.seasons[(args["id"], args["season"])]
             if isinstance(result, Exception):
@@ -99,10 +113,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(chats), count)
         for chat in chats:
             self.assertIs(chat["singleRequest"], True)
+            self.assertIs(chat["nativeWebSearch"], True)
             self.assertNotIn("tools", chat)
             self.assertLessEqual(len(chat["fileRefs"]), 8)
             self.assertEqual(len(chat["messages"]), 2)
-        self.assertFalse(any(m.startswith("tmdb.") or m in ("ai.web.search", "ai.capabilities") for m, _ in host.calls))
+        self.assertFalse(any(m in ("tmdb.search", "tmdb.season", "ai.web.search", "ai.capabilities") for m, _ in host.calls))
         return chats
 
     def test_two_files_one_request_minimal_input_and_results_before_organize(self):
@@ -154,7 +169,7 @@ class WorkflowTests(unittest.TestCase):
     def test_exact_id_and_season_pass_through_and_business_error_keeps_identity(self):
         for review in (False, True):
             host = Host()
-            tv = {**identity("one"),"tmdbId":987654,"mediaType":"tv","season":5,"episode":1}
+            tv = {**identity("one"),"tmdbId":987654,"mediaType":"tv","season":5,"episode":1,"sources":["https://www.themoviedb.org/tv/987654"]}
             host.replies = [{"content":json.dumps({"items":[tv,identity("two")]})}]
             host.file_errors["one"]=SDKError("TMDB ID 不存在", "TMDB_NOT_FOUND")
             rows=Plugin().recognize({"profileId":7,"review":review},host.context(files=[file("one"),file("two")]))

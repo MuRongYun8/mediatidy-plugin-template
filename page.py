@@ -9,10 +9,10 @@ def host(name):
 def badges(path, fallback="状态待核对"):
     status = ui.ref(path) if isinstance(path, str) else path
     groups = [
-        ("primary", {"pending": "等待识别", "recognized": "识别完成，待整理", "queued": "整理已排队", "running": "处理中", "waiting": "等待整理", "submitted": "已提交", "submitting": "提交中"}),
+        ("primary", {"pending": "等待识别", "recognized": "识别完成，待核对", "verifying": "核对 TMDB", "queued": "整理已排队", "running": "处理中", "waiting": "等待整理", "submitted": "已提交", "submitting": "提交中"}),
         ("success", {"done": "已完成", "ready": "待确认", "success": "已完成", "completed": "已完成"}),
         ("warning", {"needs_review": "需人工处理", "outcome_unknown": "结果待核对", "submission_unknown": "提交待核对", "interrupted": "已中断"}),
-        ("danger", {"failed": "失败", "organize_failed": "整理失败"}),
+        ("danger", {"failed": "失败", "organize_failed": "整理失败", "verification_failed": "核对失败，已跳过"}),
         ("muted", {"cancelled": "已取消", "unrecognized": "未识别，已跳过"}),
     ]
     known: list[str] = []
@@ -55,6 +55,8 @@ def result_columns():
         ]},
         {"label": "处理状态", "field": "status", "cells": [
             ui.Badge(text="AI 识别完成", tone="success", visible=ui.expr("eq", ui.ref("row.recognitionStatus"), "recognized")),
+            ui.Text(text=ui.expr("concat", "元数据核对：", ui.ref("row.detail.metadataCheckMs"), " ms"), tone="muted", size="sm",
+                    visible=ui.expr("gte", ui.expr("coalesce", ui.ref("row.detail.metadataCheckMs"), -1), 0)),
             *badges("row.status", ui.expr("if", legacy, "旧版摘要", "状态待核对")),
             ui.Text(text=ui.ref("row.error"), tone="muted", size="sm", visible=ui.ref("row.error")),
             ui.Text(text=ui.ref("row.warning"), tone="warning", size="sm", visible=ui.ref("row.warning")),
@@ -63,6 +65,7 @@ def result_columns():
         ]},
         {"label": "识别说明", "cells": [
             ui.Text(text=ui.expr("if", reason, reason, "未保存识别说明")),
+            ui.Markdown(text=ui.ref("row.detail.sourceMarkdown"), visible=ui.ref("row.detail.sourceMarkdown")),
             ui.Details(
                 ui.Text(text=ui.expr("concat", "文件路径：", path), size="sm", visible=path),
                 ui.Text(text=ui.expr("concat", "任务引用：", task), size="sm", visible=task),
@@ -99,8 +102,6 @@ def recognition_page():
     running = ui.expr("includes", ["queued", "running", "waiting", "submitting"], ui.ref("run.status"))
     has_rows = ui.expr("gt", ui.expr("length", ui.ref("run.result")), 0)
     has_drafts = ui.expr("gt", ui.expr("length", ui.ref("run.drafts")), 0)
-    # Keep incomplete/unmatched AI rows visible when only part of a run has drafts.
-    complete_drafts = ui.expr("and", has_drafts, ui.expr("eq", ui.expr("length", ui.ref("run.drafts")), ui.expr("length", ui.ref("run.result"))))
     review = ui.ref("input.review")
     return ui.page(
         ui.Page(
@@ -147,7 +148,7 @@ def recognition_page():
                 ui.Progress(label=ui.expr("coalesce", ui.ref("run.progress.message"), "正在准备识别"),
                     value=ui.ref("run.progress.completed"), total=ui.ref("run.progress.total"), visible=running),
                 ui.Alert(text=ui.ref("run.error"), tone="danger", visible=ui.ref("run.error")),
-                ui.Text(text="AI 结论先显示，再按该 TMDB ID 整理。未识别的文件自动跳过并保留原位；整理失败不会重新识别。", tone="muted", size="sm"),
+                ui.Text(text="AI 原生搜索结论先显示，再核对该 TMDB ID 的作品与年份后整理。未识别的文件自动跳过并保留原位；整理失败不会重新识别。", tone="muted", size="sm"),
                 ui.Stack(
                     ui.Button(label="修正或确认整理", visible=has_drafts, onClick=host("reviewDrafts")),
                     ui.Button(label="刷新结果", variant="outline", onClick=host("refreshRun")),
@@ -165,11 +166,7 @@ def recognition_page():
                     title="MT 核验与整理", visible=has_drafts,
                 ),
                 ui.Table(source=ui.ref("run.result"), rowKey="fileRef", searchable=True, sortable=True, pageSize=20,
-                    visible=ui.expr("and", has_rows, ui.expr("not", complete_drafts)), columns=result_columns()),
-                ui.Details(
-                    ui.Table(source=ui.ref("run.result"), rowKey="fileRef", searchable=False, pageSize=20, columns=result_columns()),
-                    label="AI 原始识别摘要", visible=complete_drafts,
-                ),
+                    visible=has_rows, columns=result_columns()),
                 ui.EmptyState(
                     title=ui.expr("if", has_run, "还没有识别结果", "让每个文件，找到它的作品"),
                     description=ui.expr("if", running, "正在扫描或识别片源，结果会自动显示在这里。", ui.expr("if", has_run,
