@@ -26,6 +26,7 @@ class Host:
         self.scan_files = []
         self.replies = []
         self.submit_error = None
+        self.seasons = {}
 
     def call(self, invocation, method, args):
         self.calls.append((method, deepcopy(args)))
@@ -49,6 +50,13 @@ class Host:
             return {"message": {"role": "assistant", "content": json.dumps({"items": [identity(ref) for ref in args["fileRefs"]]})}}
         elif method == "ai.web.search":
             return {"items": [{"title": "Example", "url": "https://example.invalid/result"}]}
+        elif method == "tmdb.detail":
+            return {"id": args["id"], "title": "Example", "mediaType": args["mediaType"]}
+        elif method == "tmdb.season":
+            result = self.seasons[(args["id"], args["season"])]
+            if isinstance(result, Exception):
+                raise result
+            return result
         elif method == "organize.manual.run":
             # The durable ambiguity marker must exist before a write can occur.
             row = self.values["ai/flow/flow/" + args["fileRef"]]
@@ -152,6 +160,78 @@ class WorkflowTests(unittest.TestCase):
         items = [identity("one"), identity("one"), identity("foreign"), {"fileRef": []}, {"fileRef": {}}]
         self.assertEqual(parse_identity(json.dumps({"items": items}), {"one"}), {})
         self.assertEqual(parse_identity("invalid JSON", {"one"}), {})
+
+    def test_ai_corrects_release_season_to_verified_special_before_submission(self):
+        for review in (False, True):
+            with self.subTest(review=review):
+                host = Host()
+                original = {**identity("one"), "mediaType": "tv", "season": 5, "episode": 1}
+                corrected = {**original, "season": 0, "reason": "发行版 S05E01 对应 TMDB 特别篇 S00E01，已核对公开资料"}
+                host.seasons = {(123, 5): SDKError("TMDB 未收录第 5 季", "TMDB_SEASON_NOT_FOUND"), (123, 0): [1]}
+                host.replies = [
+                    {"role": "assistant", "content": json.dumps({"items": [original]})},
+                    {"role": "assistant", "toolCalls": [
+                        {"id": "detail", "name": "tmdb_detail", "arguments": '{"id":123,"mediaType":"tv"}'},
+                        {"id": "specials", "name": "tmdb_season", "arguments": '{"id":123,"season":0}'},
+                    ]},
+                    {"role": "assistant", "content": json.dumps({"items": [corrected]})},
+                ]
+                rows = Plugin().recognize({"profileId": 7, "review": review}, host.context(files=[file("one")], config={"prompt": "Use my custom recognition instructions."}))
+                proposal = (host.prepared if review else host.submissions)[0]
+                self.assertEqual((proposal["season"], proposal["episode"]), (0, 1))
+                self.assertEqual(rows[0]["detail"]["identity"]["reason"], corrected["reason"])
+                chats = [args for method, args in host.calls if method == "ai.chat"]
+                self.assertIn("Use my custom recognition instructions.", chats[0]["messages"][0]["content"])
+                self.assertIn("不能仅照抄文件名", chats[0]["messages"][0]["content"])
+                self.assertIn("TMDB_SEASON_NOT_FOUND", chats[1]["messages"][-1]["content"])
+                self.assertEqual([args["season"] for method, args in host.calls if method == "tmdb.season"], [5, 0])
+                if review:
+                    self.assertFalse(host.submissions)
+
+    def test_unknown_season_mapping_stops_after_bounded_repairs(self):
+        host = Host()
+        original = {**identity("one"), "mediaType": "tv", "season": 5, "episode": 1}
+        host.seasons[(123, 5)] = SDKError("TMDB 未收录第 5 季", "TMDB_SEASON_NOT_FOUND")
+        host.replies = [{"content": json.dumps({"items": [original]})} for _ in range(3)]
+        rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
+        self.assertEqual(rows[0]["status"], "needs_review")
+        self.assertIn("第 5 季", rows[0]["error"])
+        self.assertEqual(len([m for m, _ in host.calls if m == "ai.chat"]), 3)
+        self.assertEqual(len([m for m, _ in host.calls if m == "tmdb.season"]), 1)
+        self.assertFalse(host.submissions)
+        self.assertFalse(host.prepared)
+
+    def test_lookup_failure_does_not_guess_a_different_season_or_block_valid_files(self):
+        for code in ("TMDB_LOOKUP_FAILED", "TMDB_AUTH_FAILED", "OPERATION_FAILED"):
+            with self.subTest(code=code):
+                host = Host()
+                tv = {**identity("two"), "mediaType": "tv", "season": 1, "episode": 1}
+                host.seasons[(123, 1)] = SDKError("查询失败，尚不能确认目标季是否存在", code, True)
+                host.replies = [{"content": json.dumps({"items": [identity("one"), tv]})}]
+                rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one"), file("two")]))
+                self.assertEqual([row["status"] for row in rows], ["queued", "needs_review"])
+                self.assertEqual([p["fileRef"] for p in host.submissions], ["one"])
+                self.assertIn("尚不能确认", rows[1]["error"])
+                self.assertEqual(len([m for m, _ in host.calls if m == "ai.chat"]), 1)
+
+    def test_missing_episode_is_repaired_against_actual_episode_list(self):
+        host = Host()
+        original = {**identity("one"), "mediaType": "tv", "season": 1, "episode": 3}
+        host.seasons[(123, 1)] = [1, 2]
+        host.replies = [{"content": json.dumps({"items": [item]})} for item in (original, {**original, "episode": 2})]
+        Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
+        self.assertEqual(host.submissions[0]["episode"], 2)
+        self.assertEqual(len([m for m, _ in host.calls if m == "tmdb.season"]), 1)
+
+    def test_season_lookup_cancellation_never_submits(self):
+        host = Host()
+        host.replies = [{"content": json.dumps({"items": [{**identity("one"), "mediaType": "tv", "season": 1, "episode": 1}]})}]
+        host.seasons[(123, 1)] = SDKError("Cancelled", "CANCELLED")
+        with self.assertRaises(SDKError) as caught:
+            Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
+        self.assertEqual(caught.exception.code, "CANCELLED")
+        self.assertFalse(host.submissions)
+        self.assertFalse(host.prepared)
 
     def test_prompt_default_and_config_validation(self):
         manifest = json.loads((Path(__file__).resolve().parents[1] / "plugin.json").read_text("utf-8"))

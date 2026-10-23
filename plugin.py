@@ -12,7 +12,10 @@ DEFAULT_PROMPT = Path(__file__).with_name("prompts").joinpath("default.txt").rea
 TOOLS = [
     {"name":"web_search","description":"搜索公开资料","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":False}},
     {"name":"tmdb_search","description":"查询作品与 TMDB ID","parameters":{"type":"object","properties":{"query":{"type":"string"},"mediaType":{"type":"string","enum":["movie","tv"]},"year":{"type":"integer"}},"required":["query","mediaType"],"additionalProperties":False}},
+    {"name":"tmdb_detail","description":"查询指定 TMDB 作品详情，核对作品身份","parameters":{"type":"object","properties":{"id":{"type":"integer","minimum":1},"mediaType":{"type":"string","enum":["movie","tv"]}},"required":["id","mediaType"],"additionalProperties":False}},
+    {"name":"tmdb_season","description":"查询 TMDB 某季实际收录的集号。第 0 季是特别篇；文件名季号可能与 TMDB 不同","parameters":{"type":"object","properties":{"id":{"type":"integer","minimum":1},"season":{"type":"integer","minimum":0}},"required":["id","season"],"additionalProperties":False}},
 ]
+SEASON_GUIDANCE = "剧集最终 season/episode 必须使用对应 TMDB 条目的季集编号，不能仅照抄文件名。发行版、合并季、特别篇的编号可能不同。可以用 tmdb_detail 核对作品、tmdb_season 查询实际集号，并结合公开资料确认映射；特别篇可用第 0 季。不存在的季集需要重新查证，查询故障不代表季集不存在。不要仅因第 0 季存在就把未知文件改成特别篇。修正时在 reason 简述原始编号、目标编号和依据；无法可靠映射时返回 null 并说明原因。"
 
 
 def read(ctx: Context, key: str) -> Any:
@@ -125,9 +128,12 @@ class Plugin(BasePlugin):
     def _identify(self, ctx: Context, flow: dict, files: list[dict]) -> dict[str, dict]:
         capabilities = ctx.mt.ai.capabilities()
         tools = [tool for tool in TOOLS if capabilities["webSearch" if tool["name"]=="web_search" else "tmdb"]["available"]]
-        messages = [{"role":"system","content":ctx.config.get("prompt") or DEFAULT_PROMPT},
+        messages = [{"role":"system","content":(ctx.config.get("prompt") or DEFAULT_PROMPT) + "\n" + SEASON_GUIDANCE},
                     {"role":"user","content":json.dumps({"files":files,"instructions":flow["instructions"]},ensure_ascii=False)}]
         previous = ""
+        season_cache: dict[tuple[int, int], Any] = {}
+        last_identified: dict[str, dict] = {}
+        repairs = 0
         for turn in range(6):
             ctx.mt.runtime.checkpoint()
             response = ctx.mt.ai.chat(messages=messages,tools=tools,file_refs=[file["ref"] for file in files])
@@ -136,7 +142,22 @@ class Plugin(BasePlugin):
                 ctx.mt.log(level="warn",message="模型不支持工具，后续直接识别")
             message = response["message"]
             if not message.get("toolCalls"):
-                return parse_identity(message.get("content", ""),{f["ref"] for f in files})
+                last_identified = parse_identity(message.get("content", ""),{f["ref"] for f in files})
+                for identity in last_identified.values():
+                    identity.pop("_seasonError", None)
+                issues = self._check_seasons(ctx, last_identified, season_cache) if capabilities["tmdb"]["available"] else []
+                for issue in issues:
+                    last_identified[issue["fileRef"]]["_seasonError"] = issue["message"]
+                # Only a definite numbering conflict warrants a new AI decision.
+                # Transport/config failures must not cause a different episode to be guessed.
+                if not issues or repairs >= 2 or turn == 5 or any(issue["code"] not in ("TMDB_SEASON_NOT_FOUND", "TMDB_EPISODE_NOT_FOUND") for issue in issues):
+                    return last_identified
+                repairs += 1
+                previous = ""
+                messages.append(message)
+                messages.append({"role":"user","content":json.dumps({"task":"部分季集与 TMDB 不一致。请查询并修正映射，返回本批全部文件的最终 JSON；无法确认的季集填 null。", "seasonValidation":issues},ensure_ascii=False)})
+                ctx.mt.log(level="info",message="发现季集编号与 TMDB 不一致，交回 AI 查证映射")
+                continue
             signature = json.dumps([{k:call[k] for k in ("name","arguments")} for call in message["toolCalls"]],sort_keys=True)
             if signature == previous:
                 ctx.mt.log(level="warn",message="模型重复查询，停止此批次")
@@ -150,12 +171,61 @@ class Plugin(BasePlugin):
                         result = ctx.mt.ai.web.search(query=args["query"])
                     elif call["name"] == "tmdb_search" and any(t["name"]==call["name"] for t in tools):
                         result = ctx.mt.tmdb.search(query=args["query"],media_type=args["mediaType"],year=args.get("year",0))
+                    elif call["name"] == "tmdb_detail" and any(t["name"]==call["name"] for t in tools):
+                        result = ctx.mt.tmdb.detail(id=args["id"],media_type=args["mediaType"])
+                    elif call["name"] == "tmdb_season" and any(t["name"]==call["name"] for t in tools):
+                        result = self._season(ctx, args["id"], args["season"], season_cache)
                     else:
                         raise ValueError("工具不可用")
-                except (SDKError, ValueError, KeyError, TypeError):
+                except SDKError as error:
+                    if error.code == "CANCELLED":
+                        raise
+                    result = {"error":str(error),"code":error.code,"retryable":error.retryable}
+                except (ValueError, KeyError, TypeError):
                     result = {"error":"查询不可用，请按已有信息判断，不编造身份"}
                 messages.append({"role":"tool","toolCallId":call["id"],"content":json.dumps(result,ensure_ascii=False)})
-        return {}
+        return last_identified
+
+    def _season(self, ctx: Context, tmdb_id: int, season: int, cache: dict) -> list[int]:
+        if not integer(tmdb_id) or not integer(season, 0) or season > 9999:
+            raise ValueError("TMDB ID 或季号无效")
+        ctx.mt.runtime.checkpoint()
+        key = (tmdb_id, season)
+        if key not in cache:
+            try:
+                episodes = ctx.mt.tmdb.season(id=tmdb_id, season=season)
+                if not isinstance(episodes, list) or any(not integer(ep) for ep in episodes):
+                    raise SDKError("TMDB 季集响应无效，请稍后重试", "TMDB_LOOKUP_FAILED", True)
+                cache[key] = episodes
+            except SDKError as error:
+                if error.code == "CANCELLED":
+                    raise
+                cache[key] = error
+        value = cache[key]
+        if isinstance(value, SDKError):
+            raise value
+        return value
+
+    def _check_seasons(self, ctx: Context, identities: dict[str, dict], cache: dict) -> list[dict]:
+        issues = []
+        for ref, identity in identities.items():
+            if identity.get("mediaType") != "tv" or identity.get("multiEpisode") or not integer(identity.get("tmdbId")) or not integer(identity.get("season"), 0) or not integer(identity.get("episode")):
+                continue
+            tmdb_id, season, episode = identity["tmdbId"], identity["season"], identity["episode"]
+            try:
+                episodes = self._season(ctx, tmdb_id, season, cache)
+                if episode in episodes:
+                    continue
+                error = SDKError(f"TMDB #{tmdb_id} 第 {season} 季未收录第 {episode} 集，请核对季集映射", "TMDB_EPISODE_NOT_FOUND")
+            except SDKError as failure:
+                if failure.code == "CANCELLED":
+                    raise
+                error = failure
+            except ValueError:
+                error = SDKError("AI 返回的季号超出支持范围，请核对季集", "INVALID_ARGUMENT")
+            issues.append({"fileRef":ref,"tmdbId":tmdb_id,"season":season,"episode":episode,"code":error.code,
+                "message":f"季集未通过核验：{error}","retryable":error.retryable})
+        return issues
 
     def _process(self, ctx: Context, flow: dict):
         items = [read(ctx,flow["key"]+"/"+ref) for ref in flow["refs"]]
@@ -169,7 +239,9 @@ class Plugin(BasePlugin):
                 item["identity"]=identity
                 item["title"]=str(identity.get("title", ""))[:300]
                 kind=identity.get("mediaType")
-                if not item["title"] or kind not in ("movie","tv") or not integer(identity.get("tmdbId")) or identity.get("multiEpisode") or kind=="tv" and (not integer(identity.get("season"),0) or not integer(identity.get("episode"))):
+                if identity.get("_seasonError"):
+                    item.update(status="needs_review",error=identity["_seasonError"])
+                elif not item["title"] or kind not in ("movie","tv") or not integer(identity.get("tmdbId")) or identity.get("multiEpisode") or kind=="tv" and (not integer(identity.get("season"),0) or not integer(identity.get("episode"))):
                     item.update(status="needs_review",error="作品身份或季集不完整，请人工处理")
                 else:
                     proposal={"fileRef":item["file"]["ref"],"profileId":flow["profileId"],"tmdbId":identity["tmdbId"],"mediaType":kind}
