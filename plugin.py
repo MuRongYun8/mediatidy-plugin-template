@@ -5,7 +5,8 @@ from pathlib import Path
 import time
 from typing import Any
 
-from mt_plugin import Context, Plugin as BasePlugin, SDKError, action, continuation, query, ui
+from mt_plugin import Context, Plugin as BasePlugin, SDKError, action, continuation, query
+from page import recognition_page
 
 DEFAULT_PROMPT = Path(__file__).with_name("prompts").joinpath("default.txt").read_text("utf-8").strip()
 TOOLS = [
@@ -60,23 +61,7 @@ class Plugin(BasePlugin):
             return {"fieldErrors":{"prompt":"提示词不能为空，最多 16000 字符"}}
 
     def get_page(self, ctx: Context):
-        return ui.page(
-            ui.Card(ui.Text(text="选择文件或目录。AI 识别后可直接提交，或先在宿主审阅草稿。"),
-                    ui.FilePicker(), ui.ProfilePicker(label="整理方案", bind="input.profileId"),
-                    ui.Textarea(label="补充说明", bind="input.instructions"),
-                    ui.Checkbox(label="先审阅整理草稿", bind="input.review"),
-                    ui.Button(label="开始扫描、识别与整理", disabled=ui.ref("plugin.busy"),
-                              onClick=[{"type":"invoke","actionId":"recognize"}])),
-            ui.Progress(label=ui.ref("run.progress.message"), value=ui.ref("run.progress.completed"), total=ui.ref("run.progress.total")),
-            ui.Table(source=ui.ref("run.result"), rowKey="fileRef", searchable=True, pageSize=20, columns=[
-                {"label":"文件","field":"name","cells":[ui.Text(text=ui.ref("row.name"))]},
-                {"label":"识别结果","field":"title","cells":[ui.Text(text=ui.ref("row.title"))]},
-                {"label":"状态与原因","field":"status","cells":[ui.Badge(text=ui.ref("row.status")),ui.Text(text=ui.ref("row.error"))]},
-                {"label":"详情","cells":[ui.Details(ui.Text(text=ui.ref("row.detail"), format="json"),label="识别依据、任务和来源")]}]),
-            ui.Button(label="审阅整理草稿", onClick=[{"type":"host","name":"reviewDrafts"}]),
-            ui.Details(ui.Textarea(label="完整识别提示词",bind="config.prompt"),
-                       ui.Button(label="保存提示词",onClick=[{"type":"host","name":"saveConfig"}]),label="编辑完整提示词"),
-            ui.RunHistory(), ui.RunLog(), state={})
+        return recognition_page()
 
     @action("recognize")
     def recognize(self, input: dict, ctx: Context):

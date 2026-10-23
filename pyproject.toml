@@ -6,4 +6,4 @@ dependencies=[]
 [tool.uv]
 package=false
 [tool.mt-plugin]
-include=["plugin.py","plugin.json","pyproject.toml","uv.lock","prompts","ui"]
+include=["plugin.py","page.py","plugin.json","pyproject.toml","uv.lock","prompts","ui"]

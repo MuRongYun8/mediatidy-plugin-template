@@ -3,7 +3,7 @@
   "name": "AI 识别整理",
   "version": "2.0.0",
   "sdkVersion": "2",
-  "description": "AI 自主判断作品和季集，按需选择查询工具；信息完整后直接触发 MT 手动整理。页面、Logo、提示词与逻辑均来自本插件。",
+  "description": "选择片源，识别作品与季集，按你的方案整理入库。",
   "author": "MediaTidy",
   "entry": "plugin.py:Plugin",
   "permissions": [
@@ -51,6 +51,12 @@
           "default": "",
           "type": "textarea",
           "label": "给 AI 的补充说明"
+        },
+        {
+          "key": "review",
+          "default": false,
+          "type": "boolean",
+          "label": "整理前让我确认"
         }
       ],
       "inputSchema": {
