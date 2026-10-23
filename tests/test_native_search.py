@@ -6,7 +6,7 @@ from test_workflow import Host, file, identity
 
 
 class NativeSearchTests(unittest.TestCase):
-    def test_missing_or_forged_source_skips_only_invalid_file(self):
+    def test_forged_source_does_not_bypass_or_prevent_metadata_check(self):
         for url in ["https://example.org/movie/123", "https://themoviedb.org.evil.invalid/movie/123", "https://www.themoviedb.org/movie/999", "https://www.themoviedb.org/tv/123", "https://user@www.themoviedb.org/movie/123", "javascript:alert(1)"]:
             with self.subTest(url=url):
                 host=Host()
@@ -14,21 +14,37 @@ class NativeSearchTests(unittest.TestCase):
                 host.chat_results=[{"message":{"content":json.dumps({"items":[{**identity("one"),"sources":[url]},good]})},
                                     "nativeWebSearch":{"performed":True,"sources":[{"url":good["sources"][0]}]}}]
                 rows=Plugin().recognize({"profileId":7},host.context(files=[file("one"),file("two")]))
-                self.assertEqual([r["status"] for r in rows],["unrecognized","queued"])
-                self.assertEqual([p["fileRef"] for p in host.submissions],["two"])
+                self.assertEqual([r["status"] for r in rows],["queued","queued"])
+                self.assertEqual([p["fileRef"] for p in host.submissions],["one","two"])
+                self.assertEqual(sum(m=="tmdb.detail" for m,_ in host.calls),1)
+                self.assertEqual(rows[0]["detail"]["sourceMarkdown"],"[TMDB 核对条目](https://www.themoviedb.org/movie/123)")
+                self.assertEqual(rows[1]["detail"]["sourceMarkdown"],"[TMDB 搜索依据](https://www.themoviedb.org/movie/123)")
 
-    def test_model_link_without_provider_evidence_is_not_trusted(self):
-        host=Host()
-        host.chat_results=[{"message":{"content":json.dumps({"items":[identity("one")]})},"nativeWebSearch":{"performed":True,"sources":[]}}]
-        rows=Plugin().recognize({"profileId":7},host.context(files=[file("one")]))
-        self.assertEqual(rows[0]["status"],"unrecognized")
-        self.assertFalse(any(m=="tmdb.detail" for m,_ in host.calls))
-        self.assertFalse(host.submissions)
+    def test_missing_citations_still_check_id_without_claiming_search_evidence(self):
+        for claimed in ("missing", [], None, "https://www.themoviedb.org/movie/123", ["https://www.themoviedb.org/movie/123"]):
+            for provider in ({}, {"sources":[]}, {"sources":[{"url":"https://example.org/other"}]}):
+                with self.subTest(claimed=claimed,provider=provider):
+                    host=Host();item=identity("one")
+                    item.pop("sources")
+                    if claimed != "missing":
+                        item["sources"]=claimed
+                    host.chat_results=[{"message":{"content":json.dumps({"items":[item]})},"nativeWebSearch":{"performed":True,**provider}}]
+                    rows=Plugin().recognize({"profileId":7},host.context(files=[file("one")]))
+                    self.assertEqual(rows[0]["status"],"queued")
+                    self.assertTrue(rows[0]["detail"]["identityVerified"])
+                    self.assertEqual(rows[0]["detail"]["identity"],item)
+                    self.assertEqual(rows[0]["detail"]["sourceMarkdown"],"[TMDB 核对条目](https://www.themoviedb.org/movie/123)")
+                    self.assertEqual(sum(m=="tmdb.detail" for m,_ in host.calls),1)
+                    self.assertEqual(sum(m=="ai.chat" for m,_ in host.calls),1)
+                    # Before the detail response, no unverified link or passed badge is published.
+                    first=next(args["value"][0] for m,args in host.calls if m=="runtime.result")
+                    self.assertEqual(first["detail"]["sourceMarkdown"],"")
+                    self.assertFalse(first["detail"]["identityVerified"])
 
     def test_wrong_existing_id_never_becomes_a_ready_draft_or_submission(self):
         for review in (False,True):
             host=Host()
-            bad={**identity("one"),"title":"Antonia’s Line","originalTitle":"Antonia","year":1995,"tmdbId":754,"sources":["https://www.themoviedb.org/movie/754"]}
+            bad={**identity("one"),"title":"Antonia’s Line","originalTitle":"Antonia","year":1995,"tmdbId":754,"sources":[]}
             host.replies=[{"content":json.dumps({"items":[bad,identity("two")]})}]
             host.details[("movie",754)]={"id":754,"title":"变脸","originalTitle":"Face/Off","year":"1997","mediaType":"movie"}
             rows=Plugin().recognize({"profileId":7,"review":review},host.context(files=[file("one"),file("two")]))
@@ -37,7 +53,57 @@ class NativeSearchTests(unittest.TestCase):
             self.assertEqual(rows[0]["detail"]["identity"],bad)
             self.assertIn("Antonia’s Line",rows[0]["error"])
             self.assertIn("变脸",rows[0]["error"])
+            self.assertFalse(rows[0]["detail"]["identityVerified"])
+            self.assertEqual(rows[0]["detail"]["sourceMarkdown"],"")
             self.assertEqual([p["fileRef"] for p in host.prepared+host.submissions],["two"])
+
+    def test_alias_and_platform_files_use_one_request_and_verify_ids_without_citations(self):
+        # Replay the reported filenames with simulated AI/TMDB responses; no live services.
+        files=[{**file("tv"),"name":"A.Prophet.2026.S01E06.2160p.TX.WEB-DL.DDP5.1.HFR.H.265-FGTWeb.mkv",
+                "path":"未识别/我不是大师/长风起/A.Prophet.2026.S01E06.mkv"},
+               {**file("movie"),"name":"Animales.2026.2160p.NF.WEB-DL.H265.DV.DDP.5.1.Atmos.mkv"}]
+        items=[{**identity("tv"),"title":"我不是大师","originalTitle":"我不是大师","year":2026,"mediaType":"tv","tmdbId":289078,
+                "season":1,"episode":6,"reason":"目录中文别名与 TX 平台线索一致，S01E06 提供季集编号","sources":[]},
+               {**identity("movie"),"title":"Animals","originalTitle":"Animals","year":2026,"tmdbId":1236045,
+                "reason":"西班牙语发行名及 NF 平台线索对应 Animals","sources":[]}]
+        for review in (False,True):
+            host=Host()
+            host.chat_results=[{"message":{"content":json.dumps({"items":items})},"nativeWebSearch":{"performed":True,"sources":[]}}]
+            for item in items:
+                host.details[(item["mediaType"],item["tmdbId"])]=dict(id=item["tmdbId"],title=item["title"],
+                    originalTitle=item["originalTitle"],year="2026",mediaType=item["mediaType"])
+            rows=Plugin().recognize({"profileId":7,"review":review},host.context(files=files))
+            self.assertEqual([r["status"] for r in rows],["ready" if review else "queued"]*2)
+            calls=[args for method,args in host.calls if method=="ai.chat"]
+            self.assertEqual(len(calls),1)
+            self.assertIs(calls[0]["singleRequest"],True)
+            self.assertIs(calls[0]["nativeWebSearch"],True)
+            self.assertNotIn("tools",calls[0])
+            clues=json.loads(calls[0]["messages"][1]["content"])["files"]
+            self.assertEqual(clues[0]["directory"],"未识别/我不是大师/长风起")
+            self.assertEqual([c["name"] for c in clues],[f["name"] for f in files])
+            prompt=calls[0]["messages"][0]["content"]
+            for guidance in ("别名","原文名","TX","WeTV","NF","Netflix","S01E06","可为空"):
+                self.assertIn(guidance,prompt)
+            self.assertEqual([(a["mediaType"],a["id"]) for m,a in host.calls if m=="tmdb.detail"],[("tv",289078),("movie",1236045)])
+            submitted=host.prepared+host.submissions
+            self.assertEqual([a["tmdbId"] for a in submitted],[289078,1236045])
+            self.assertEqual((submitted[0]["season"],submitted[0]["episode"]),(1,6))
+            self.assertFalse(any(m in ("tmdb.search","tmdb.season","ai.web.search","ai.capabilities") for m,_ in host.calls))
+
+    def test_missing_id_preserves_known_alias_without_blocking_other_files(self):
+        host=Host()
+        unknown={**identity("one"),"title":"已确认的作品名","tmdbId":None,"sources":[]}
+        valid={**identity("two"),"sources":[]}
+        host.replies=[{"content":json.dumps({"items":[unknown,valid]})}]
+        rows=Plugin().recognize({"profileId":7},host.context(files=[file("one"),file("two")]))
+        self.assertEqual([r["status"] for r in rows],["unrecognized","queued"])
+        self.assertEqual(rows[0]["title"],unknown["title"])
+        self.assertEqual(rows[0]["detail"]["identity"],unknown)
+        self.assertEqual([a["fileRef"] for a in host.submissions],["two"])
+        self.assertEqual(sum(m=="ai.chat" for m,_ in host.calls),1)
+        self.assertEqual(sum(m=="tmdb.detail" for m,_ in host.calls),1)
+        self.assertFalse(any(m=="tmdb.search" for m,_ in host.calls))
 
     def test_metadata_failure_deduplicates_and_never_restarts_ai(self):
         for failure in [SDKError("TMDB 暂时不可用","TMDB_LOOKUP_FAILED"),

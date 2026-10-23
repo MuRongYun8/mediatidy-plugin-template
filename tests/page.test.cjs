@@ -126,3 +126,13 @@ test('verification failure preserves AI identity, timing and clickable search so
   assert.match(cells[2],/元数据核对：15 ms/);
   assert.match(cells[3],/https:\/\/www.themoviedb.org\/movie\/754/);
 });
+
+test('metadata verification without citations shows a checked entry, not search evidence', () => {
+  const cells=visibleCells({name:'Animales.2026.NF.mkv',title:'Animals',status:'ready',recognitionStatus:'recognized',
+    detail:{identity:{title:'Animals',tmdbId:1236045},identityVerified:true,metadataCheckMs:12,
+      sourceMarkdown:'[TMDB 核对条目](https://www.themoviedb.org/movie/1236045)'}});
+  assert.match(cells[2],/AI 识别完成\nTMDB 核对通过/);
+  assert.match(cells[2],/待确认/);
+  assert.match(cells[3],/TMDB 核对条目/);
+  assert.doesNotMatch(cells.join('\n'),/未识别|搜索依据/);
+});

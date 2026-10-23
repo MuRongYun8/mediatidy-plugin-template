@@ -55,6 +55,7 @@ def result_columns():
         ]},
         {"label": "处理状态", "field": "status", "cells": [
             ui.Badge(text="AI 识别完成", tone="success", visible=ui.expr("eq", ui.ref("row.recognitionStatus"), "recognized")),
+            ui.Badge(text="TMDB 核对通过", tone="success", visible=ui.expr("eq", ui.ref("row.detail.identityVerified"), True)),
             ui.Text(text=ui.expr("concat", "元数据核对：", ui.ref("row.detail.metadataCheckMs"), " ms"), tone="muted", size="sm",
                     visible=ui.expr("gte", ui.expr("coalesce", ui.ref("row.detail.metadataCheckMs"), -1), 0)),
             *badges("row.status", ui.expr("if", legacy, "旧版摘要", "状态待核对")),

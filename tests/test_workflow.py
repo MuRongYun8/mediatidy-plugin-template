@@ -139,6 +139,16 @@ class WorkflowTests(unittest.TestCase):
         Plugin().recognize({"profileId":7}, host.context(files=[file(str(i)) for i in range(17)]))
         self.assertEqual([len(c["fileRefs"]) for c in self.assert_single_chat(host, 3)], [8,8,1])
 
+    def test_custom_prompt_is_preserved_with_current_source_policy_appended(self):
+        host = Host()
+        custom = "保留我的译名偏好。旧要求：每个已识别作品必须有 TMDB 引用。"
+        ctx = host.context(files=[file("one")], config={"prompt":custom})
+        Plugin().recognize({"profileId":7}, ctx)
+        prompt = self.assert_single_chat(host)[0]["messages"][0]["content"]
+        self.assertTrue(prompt.startswith(custom + "\n"))
+        self.assertIn("取代旧提示词中必须有 TMDB 引用才能识别的要求", prompt)
+        self.assertEqual(ctx.config["prompt"], custom)
+
     def test_empty_invalid_or_tool_reply_never_retries(self):
         for response in [{"content":""}, {"content":"not JSON"}, {"content":None}, {"content":"[]"},
                          {"toolCalls":[{"name":"tmdb_search","arguments":"{}"}]}]:
