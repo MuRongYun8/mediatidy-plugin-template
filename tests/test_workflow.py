@@ -25,6 +25,7 @@ class Host:
         self.waits = []
         self.scan_files = []
         self.replies = []
+        self.chat_results = []
         self.submit_error = None
         self.seasons = {}
 
@@ -45,6 +46,11 @@ class Host:
         elif method == "ai.capabilities":
             return {"webSearch": {"available": True}, "tmdb": {"available": True}}
         elif method == "ai.chat":
+            if self.chat_results:
+                response = self.chat_results.pop(0)
+                if isinstance(response, Exception):
+                    raise response
+                return response
             if self.replies:
                 return {"message": self.replies.pop(0)}
             return {"message": {"role": "assistant", "content": json.dumps({"items": [identity(ref) for ref in args["fileRefs"]]})}}
@@ -79,6 +85,55 @@ class Host:
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_ai_failure_publishes_file_errors_without_submitting(self):
+        for review in (False, True):
+            with self.subTest(review=review):
+                host = Host()
+                host.chat_results = [SDKError("AI 服务限流（HTTP 429）", "AI_RATE_LIMITED", True)]
+                with self.assertRaises(SDKError) as caught:
+                    Plugin().recognize({"profileId": 7, "review": review}, host.context(files=[file("one"), file("two")]))
+                self.assertEqual(caught.exception.code, "AI_RATE_LIMITED")
+                self.assertTrue(caught.exception.retryable)
+                rows = [args["value"] for method, args in host.calls if method == "runtime.result"][-1]
+                self.assertEqual([row["status"] for row in rows], ["failed", "failed"])
+                self.assertTrue(all("HTTP 429" in row["error"] for row in rows))
+                self.assertEqual(host.values["ai/flow/flow"]["stage"], "failed")
+                self.assertFalse(host.submissions)
+                self.assertFalse(host.prepared)
+
+    def test_later_ai_failure_keeps_earlier_submissions_tracked(self):
+        host = Host()
+        files = [file(str(i)) for i in range(10)]
+        host.chat_results = [{"message": {"content": json.dumps({"items": [identity(str(i)) for i in range(8)]})}},
+                             SDKError("AI 服务不可用（HTTP 503）", "AI_SERVICE_UNAVAILABLE", True)]
+        rows = Plugin().recognize({"profileId": 7}, host.context(files=files))
+        self.assertEqual(len(host.submissions), 8)
+        self.assertEqual(host.waits[-1]["refs"], ["task-" + str(i) for i in range(8)])
+        self.assertEqual([row["status"] for row in rows], ["queued"] * 8 + ["failed"] * 2)
+        event = {"parentRunId": "run-start", "tasks": [{"ref": ref, "status": "done"} for ref in host.waits[-1]["refs"]]}
+        rows = Plugin().organize_complete({"flowKey": "ai/flow/flow"}, host.context(run="complete", event=event))
+        self.assertEqual([row["status"] for row in rows], ["done"] * 8 + ["failed"] * 2)
+        self.assertEqual(len(host.submissions), 8)
+
+    def test_unsupported_tools_retry_plain_chat_instead_of_empty_results(self):
+        host = Host()
+        host.chat_results = [{"toolsUnavailable": True, "message": {"role": "assistant"}}]
+        rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
+        chats = [args for method, args in host.calls if method == "ai.chat"]
+        self.assertEqual(len(chats), 2)
+        self.assertTrue(chats[0]["tools"])
+        self.assertEqual(chats[1]["tools"], [])
+        self.assertEqual(rows[0]["status"], "queued")
+
+    def test_ai_cancellation_is_not_reported_as_provider_failure(self):
+        host = Host()
+        host.chat_results = [SDKError("Cancelled", "CANCELLED")]
+        with self.assertRaises(SDKError) as caught:
+            Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
+        self.assertEqual(caught.exception.code, "CANCELLED")
+        self.assertFalse(host.submissions)
+        self.assertFalse(any(method == "runtime.result" for method, _ in host.calls))
+
     def test_direct_selection_waits_for_final_results_and_preserves_history(self):
         host = Host()
         rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one"), file("two")]))

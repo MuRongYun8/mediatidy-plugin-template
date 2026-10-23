@@ -140,6 +140,7 @@ class Plugin(BasePlugin):
             if response.get("toolsUnavailable"):
                 tools=[]
                 ctx.mt.log(level="warn",message="模型不支持工具，后续直接识别")
+                continue
             message = response["message"]
             if not message.get("toolCalls"):
                 last_identified = parse_identity(message.get("content", ""),{f["ref"] for f in files})
@@ -229,11 +230,26 @@ class Plugin(BasePlugin):
 
     def _process(self, ctx: Context, flow: dict):
         items = [read(ctx,flow["key"]+"/"+ref) for ref in flow["refs"]]
+        failure: SDKError | None = None
         for offset in range(0,len(items),8):
             batch=items[offset:offset+8]
             ctx.mt.runtime.progress(completed=offset,total=len(items),message="AI 识别")
             ctx.mt.log(level="info",message=f"识别第 {offset+1} 至 {min(offset+8,len(items))} 个文件")
-            identities=self._identify(ctx,flow,[item["file"] for item in batch])
+            try:
+                identities=self._identify(ctx,flow,[item["file"] for item in batch])
+            except SDKError as error:
+                if error.code == "CANCELLED":
+                    raise
+                message = str(error) if error.code != "OPERATION_FAILED" else "AI 请求未完成；当前 MT 未提供具体原因，请更新主程序后重试并查看 AI 日志"
+                failure = SDKError(message, error.code, error.retryable)
+                # Keep a row for every file even when the model returns nothing.
+                # Earlier business submissions remain tracked and are never retried here.
+                for item in items[offset:]:
+                    item.update(status="failed", error=f"AI 识别中止，未提交整理：{message}")
+                    save(ctx,flow["key"]+"/"+item["file"]["ref"],item)
+                ctx.mt.runtime.result(value=self._views(items))
+                ctx.mt.log(level="error", message=f"AI 识别中止（{error.code}）：{message}")
+                break
             for item in batch:
                 identity=identities.get(item["file"]["ref"],{})
                 item["identity"]=identity
@@ -263,13 +279,15 @@ class Plugin(BasePlugin):
                     ctx.mt.log(level="info",message=f"{item['file']['name']}：{item['status']}")
                 save(ctx,flow["key"]+"/"+item["file"]["ref"],item)
             ctx.mt.runtime.result(value=self._views(items))
-        flow["stage"]="waiting" if flow["taskRefs"] else "review" if flow["review"] else "done"
+        flow["stage"]="waiting" if flow["taskRefs"] else "failed" if failure else "review" if flow["review"] else "done"
         flow["organizeParent"]=ctx.run_id
         save(ctx,flow["key"],flow)
         rows=self._views(items)
         if flow["taskRefs"]:
             ctx.mt.runtime.progress(completed=0,total=len(flow["taskRefs"]),message="等待 MT 整理任务最终结果")
             ctx.mt.tasks.wait(refs=flow["taskRefs"],completion={"action":"organize-complete","input":{"flowKey":flow["key"]}})
+        elif failure:
+            raise failure
         return rows
 
     @continuation("organize-complete")

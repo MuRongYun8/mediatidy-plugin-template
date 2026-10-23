@@ -61,6 +61,14 @@ test('incomplete current results report missing data explicitly and show no empt
   assert.equal(cells[3], '未保存识别说明');
 });
 
+test('AI failure keeps the filename and actionable error visible without an identity', () => {
+  const error = 'AI 识别中止，未提交整理：AI 服务限流（HTTP 429）';
+  const cells = visibleCells({ name: 'Example.mkv', title: '', status: 'failed', error,
+    detail: { path: 'Example.mkv', identity: {}, taskRef: '' } });
+  assert.equal(cells[0], 'Example.mkv');
+  assert.equal(cells[2], '失败\n' + error);
+});
+
 test('host verification exposes recognized work and validation error for historical runs', () => {
   const draft = { file: { name: 'Example.S05E01.mkv' }, recognition: { title: 'Example' }, tmdbId: 123, mediaType: 'tv',
     season: 5, episode: 1, status: 'needs_review', error: '无法核验目标季', reason: '文件名明确标注 S05E01。' };
