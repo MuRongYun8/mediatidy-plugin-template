@@ -94,3 +94,24 @@ test('submitted drafts show final task state instead of suggesting the file is s
   const cells = visibleCells({ file: { name: 'Example.mkv' }, status: 'submitted', taskStatus: 'failed', error: 'Target unavailable' }, { columns: draftTable.props.columns });
   assert.equal(cells[2], '失败\nTarget unavailable');
 });
+
+test('recognition completion remains visible when organization fails with metadata error', () => {
+  const cells = visibleCells({ name: 'Example.mkv', title: 'Example', status: 'organize_failed', recognitionStatus: 'recognized',
+    error: 'TMDB ID 不存在', detail: { identity: { title: 'Example', tmdbId: 123, mediaType: 'movie' }, organizeDurationMs: 2500 } });
+  assert.match(cells[1], /TMDB · 123/);
+  assert.match(cells[2], /AI 识别完成\n整理失败\nTMDB ID 不存在/);
+  assert.match(cells[2], /2500 ms/);
+});
+
+test('unknown identity is skipped without asking for manual processing or showing invented timing', () => {
+  const cells = visibleCells({ name: 'Unknown.mkv', status: 'unrecognized', recognitionStatus: 'unknown', error: 'AI 未提供有效 TMDB ID',
+    detail: { identity: { mediaType: 'unknown' }, organizeDurationMs: null } });
+  assert.match(cells[2], /未识别，已跳过/);
+  assert.doesNotMatch(cells[2], /需人工|整理耗时|AI 识别完成/);
+});
+
+test('published batch shows recognition completed while waiting to organize', () => {
+  const cells = visibleCells({ name: 'Example.mkv', title: 'Example', status: 'recognized', recognitionStatus: 'recognized', detail: { identity: {tmdbId: 123} } });
+  assert.match(cells[2], /AI 识别完成/);
+  assert.match(cells[2], /识别完成，待整理/);
+});

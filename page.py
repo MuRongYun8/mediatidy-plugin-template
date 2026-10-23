@@ -9,11 +9,11 @@ def host(name):
 def badges(path, fallback="状态待核对"):
     status = ui.ref(path) if isinstance(path, str) else path
     groups = [
-        ("primary", {"pending": "等待识别", "queued": "已排队", "running": "处理中", "waiting": "等待整理", "submitted": "已提交", "submitting": "提交中"}),
+        ("primary", {"pending": "等待识别", "recognized": "识别完成，待整理", "queued": "整理已排队", "running": "处理中", "waiting": "等待整理", "submitted": "已提交", "submitting": "提交中"}),
         ("success", {"done": "已完成", "ready": "待确认", "success": "已完成", "completed": "已完成"}),
         ("warning", {"needs_review": "需人工处理", "outcome_unknown": "结果待核对", "submission_unknown": "提交待核对", "interrupted": "已中断"}),
-        ("danger", {"failed": "失败"}),
-        ("muted", {"cancelled": "已取消"}),
+        ("danger", {"failed": "失败", "organize_failed": "整理失败"}),
+        ("muted", {"cancelled": "已取消", "unrecognized": "未识别，已跳过"}),
     ]
     known: list[str] = []
     result = []
@@ -54,9 +54,12 @@ def result_columns():
             ui.Text(text=ui.expr("concat", "TMDB · ", field("tmdbId")), tone="muted", size="sm", visible=field("tmdbId")),
         ]},
         {"label": "处理状态", "field": "status", "cells": [
+            ui.Badge(text="AI 识别完成", tone="success", visible=ui.expr("eq", ui.ref("row.recognitionStatus"), "recognized")),
             *badges("row.status", ui.expr("if", legacy, "旧版摘要", "状态待核对")),
             ui.Text(text=ui.ref("row.error"), tone="muted", size="sm", visible=ui.ref("row.error")),
             ui.Text(text=ui.ref("row.warning"), tone="warning", size="sm", visible=ui.ref("row.warning")),
+            ui.Text(text=ui.expr("concat", ui.expr("if", ui.expr("eq", ui.ref("row.detail.organizeTiming"), "prepare"), "整理准备耗时：", "整理耗时（含排队）："), ui.ref("row.detail.organizeDurationMs"), " ms"), tone="muted", size="sm",
+                    visible=ui.expr("gte", ui.expr("coalesce", ui.ref("row.detail.organizeDurationMs"), -1), 0)),
         ]},
         {"label": "识别说明", "cells": [
             ui.Text(text=ui.expr("if", reason, reason, "未保存识别说明")),
@@ -144,7 +147,7 @@ def recognition_page():
                 ui.Progress(label=ui.expr("coalesce", ui.ref("run.progress.message"), "正在准备识别"),
                     value=ui.ref("run.progress.completed"), total=ui.ref("run.progress.total"), visible=running),
                 ui.Alert(text=ui.ref("run.error"), tone="danger", visible=ui.ref("run.error")),
-                ui.Text(text="逐文件结果会持续更新。完成状态请以每个文件的整理结果为准。", tone="muted", size="sm"),
+                ui.Text(text="AI 结论先显示，再按该 TMDB ID 整理。未识别的文件自动跳过并保留原位；整理失败不会重新识别。", tone="muted", size="sm"),
                 ui.Stack(
                     ui.Button(label="修正或确认整理", visible=has_drafts, onClick=host("reviewDrafts")),
                     ui.Button(label="刷新结果", variant="outline", onClick=host("refreshRun")),

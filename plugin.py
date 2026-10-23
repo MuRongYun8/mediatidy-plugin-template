@@ -1,6 +1,7 @@
 """Independent AI organize example. All identity and UI choices belong here."""
 from __future__ import annotations
 import json
+from datetime import datetime
 from pathlib import Path
 import time
 from typing import Any
@@ -9,13 +10,8 @@ from mt_plugin import Context, Plugin as BasePlugin, SDKError, action, continuat
 from page import recognition_page
 
 DEFAULT_PROMPT = Path(__file__).with_name("prompts").joinpath("default.txt").read_text("utf-8").strip()
-TOOLS = [
-    {"name":"web_search","description":"搜索公开资料","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":False}},
-    {"name":"tmdb_search","description":"查询作品与 TMDB ID","parameters":{"type":"object","properties":{"query":{"type":"string"},"mediaType":{"type":"string","enum":["movie","tv"]},"year":{"type":"integer"}},"required":["query","mediaType"],"additionalProperties":False}},
-    {"name":"tmdb_detail","description":"查询指定 TMDB 作品详情，核对作品身份","parameters":{"type":"object","properties":{"id":{"type":"integer","minimum":1},"mediaType":{"type":"string","enum":["movie","tv"]}},"required":["id","mediaType"],"additionalProperties":False}},
-    {"name":"tmdb_season","description":"查询 TMDB 某季实际收录的集号。第 0 季是特别篇；文件名季号可能与 TMDB 不同","parameters":{"type":"object","properties":{"id":{"type":"integer","minimum":1},"season":{"type":"integer","minimum":0}},"required":["id","season"],"additionalProperties":False}},
-]
-SEASON_GUIDANCE = "剧集最终 season/episode 必须使用对应 TMDB 条目的季集编号，不能仅照抄文件名。发行版、合并季、特别篇的编号可能不同。可以用 tmdb_detail 核对作品、tmdb_season 查询实际集号，并结合公开资料确认映射；特别篇可用第 0 季。不存在的季集需要重新查证，查询故障不代表季集不存在。不要仅因第 0 季存在就把未知文件改成特别篇。修正时在 reason 简述原始编号、目标编号和依据；无法可靠映射时返回 null 并说明原因。"
+# This contract applies even when a user keeps a custom prompt from an older build.
+OUTPUT_CONTRACT = "本次只能回答一次，没有查询工具或后续对话。仅返回 JSON items 数组，每项包含 fileRef、title、year、mediaType、tmdbId、season、episode、multiEpisode、reason。必须自行确认 TMDB ID；无法确认作品、ID 或剧集季集时返回 unknown/null，不猜测 ID，不请求工具。剧集使用你能确认的 TMDB 季集编号（特别篇可为第 0 季）。"
 
 
 def read(ctx: Context, key: str) -> Any:
@@ -34,6 +30,8 @@ def integer(value: Any, minimum: int = 1) -> bool:
 
 
 def parse_identity(content: str, refs: set[str]) -> dict[str, dict]:
+    if not isinstance(content, str):
+        return {}
     content = content.strip()
     if content.startswith("```"):
         content = content.split("\n", 1)[-1].rsplit("```", 1)[0]
@@ -57,6 +55,38 @@ def parse_identity(content: str, refs: set[str]) -> dict[str, dict]:
     return result
 
 
+def identity_error(identity: dict) -> str:
+    if not identity:
+        return "AI 未返回此文件的有效结果（缺失、重复或格式无效），已跳过，文件保留原位"
+    if not isinstance(identity.get("title"), str) or not identity["title"].strip() or len(identity["title"]) > 300:
+        return "未确认作品名，已跳过，文件保留原位"
+    if identity.get("mediaType") not in ("movie", "tv"):
+        return "未确认作品类型，已跳过，文件保留原位"
+    if not integer(identity.get("tmdbId")):
+        return "AI 未提供有效 TMDB ID，已跳过，不自动搜索 ID"
+    if identity.get("year") is not None and not (integer(identity["year"]) and identity["year"] <= 9999):
+        return "AI 返回的年份格式无效，已跳过"
+    if not isinstance(identity.get("reason", ""), str) or len(identity.get("reason", "")) > 2000:
+        return "AI 返回的识别说明格式无效，已跳过"
+    if type(identity.get("multiEpisode", False)) is not bool or identity.get("multiEpisode"):
+        return "多集合集或集数范围无法按单集整理，已跳过"
+    if identity["mediaType"] == "tv" and any(not integer(identity.get(k), minimum) or identity[k] > 9999 for k, minimum in (("season", 0), ("episode", 1))):
+        return "未确认有效季集，已跳过，文件保留原位"
+    if identity["mediaType"] == "movie" and any(identity.get(k) is not None for k in ("season", "episode")):
+        return "电影结果包含季集字段，已跳过"
+    return ""
+
+
+def organization_elapsed(item: dict, finished: str = "") -> int:
+    end = time.time()
+    if finished:
+        try:
+            end = datetime.fromisoformat(finished.replace("Z", "+00:00")).timestamp()
+        except (ValueError, TypeError):
+            pass
+    return max(0, round((end - item.get("organizeStartedAt", end)) * 1000))
+
+
 class Plugin(BasePlugin):
     def validate_config(self, config: dict, ctx: Context):
         prompt = config.get("prompt", DEFAULT_PROMPT)
@@ -69,6 +99,9 @@ class Plugin(BasePlugin):
     @action("recognize")
     def recognize(self, input: dict, ctx: Context):
         key = "ai/flow/" + ctx.flow_id
+        previous = ctx.mt.storage.get(key=key)
+        if previous["found"]:
+            return self._rows(ctx, previous["value"])
         flow = {"key":key,"createdAt":time.time(),"profileId":input["profileId"],"instructions":input.get("instructions", ""),
                 "review":bool(input.get("review")),"refs":[],"scanTasks":[],"taskRefs":[],"stage":"scan"}
         files = [file for file in ctx.files if not file["isDir"]]
@@ -126,113 +159,22 @@ class Plugin(BasePlugin):
         return self._process(ctx,flow)
 
     def _identify(self, ctx: Context, flow: dict, files: list[dict]) -> dict[str, dict]:
-        capabilities = ctx.mt.ai.capabilities()
-        tools = [tool for tool in TOOLS if capabilities["webSearch" if tool["name"]=="web_search" else "tmdb"]["available"]]
-        messages = [{"role":"system","content":(ctx.config.get("prompt") or DEFAULT_PROMPT) + "\n" + SEASON_GUIDANCE},
-                    {"role":"user","content":json.dumps({"files":files,"instructions":flow["instructions"]},ensure_ascii=False)}]
-        previous = ""
-        season_cache: dict[tuple[int, int], Any] = {}
-        last_identified: dict[str, dict] = {}
-        repairs = 0
-        for turn in range(6):
-            ctx.mt.runtime.checkpoint()
-            response = ctx.mt.ai.chat(messages=messages,tools=tools,file_refs=[file["ref"] for file in files])
-            if response.get("toolsUnavailable"):
-                tools=[]
-                ctx.mt.log(level="warn",message="模型不支持工具，后续直接识别")
-                continue
-            message = response["message"]
-            if not message.get("toolCalls"):
-                last_identified = parse_identity(message.get("content", ""),{f["ref"] for f in files})
-                for identity in last_identified.values():
-                    identity.pop("_seasonError", None)
-                issues = self._check_seasons(ctx, last_identified, season_cache) if capabilities["tmdb"]["available"] else []
-                for issue in issues:
-                    last_identified[issue["fileRef"]]["_seasonError"] = issue["message"]
-                # Only a definite numbering conflict warrants a new AI decision.
-                # Transport/config failures must not cause a different episode to be guessed.
-                if not issues or repairs >= 2 or turn == 5 or any(issue["code"] not in ("TMDB_SEASON_NOT_FOUND", "TMDB_EPISODE_NOT_FOUND") for issue in issues):
-                    return last_identified
-                repairs += 1
-                previous = ""
-                messages.append(message)
-                messages.append({"role":"user","content":json.dumps({"task":"部分季集与 TMDB 不一致。请查询并修正映射，返回本批全部文件的最终 JSON；无法确认的季集填 null。", "seasonValidation":issues},ensure_ascii=False)})
-                ctx.mt.log(level="info",message="发现季集编号与 TMDB 不一致，交回 AI 查证映射")
-                continue
-            signature = json.dumps([{k:call[k] for k in ("name","arguments")} for call in message["toolCalls"]],sort_keys=True)
-            if signature == previous:
-                ctx.mt.log(level="warn",message="模型重复查询，停止此批次")
-                break
-            previous = signature
-            messages.append(message)
-            for call in message["toolCalls"][:16]:
-                try:
-                    args = json.loads(call["arguments"])
-                    if call["name"] == "web_search" and any(t["name"]==call["name"] for t in tools):
-                        result = ctx.mt.ai.web.search(query=args["query"])
-                    elif call["name"] == "tmdb_search" and any(t["name"]==call["name"] for t in tools):
-                        result = ctx.mt.tmdb.search(query=args["query"],media_type=args["mediaType"],year=args.get("year",0))
-                    elif call["name"] == "tmdb_detail" and any(t["name"]==call["name"] for t in tools):
-                        result = ctx.mt.tmdb.detail(id=args["id"],media_type=args["mediaType"])
-                    elif call["name"] == "tmdb_season" and any(t["name"]==call["name"] for t in tools):
-                        result = self._season(ctx, args["id"], args["season"], season_cache)
-                    else:
-                        raise ValueError("工具不可用")
-                except SDKError as error:
-                    if error.code == "CANCELLED":
-                        raise
-                    result = {"error":str(error),"code":error.code,"retryable":error.retryable}
-                except (ValueError, KeyError, TypeError):
-                    result = {"error":"查询不可用，请按已有信息判断，不编造身份"}
-                messages.append({"role":"tool","toolCallId":call["id"],"content":json.dumps(result,ensure_ascii=False)})
-        return last_identified
-
-    def _season(self, ctx: Context, tmdb_id: int, season: int, cache: dict) -> list[int]:
-        if not integer(tmdb_id) or not integer(season, 0) or season > 9999:
-            raise ValueError("TMDB ID 或季号无效")
+        clues = [{"fileRef": file["ref"], "name": file["name"],
+                  "directory": "/".join(file["path"].replace("\\", "/").split("/")[:-1][-3:])}
+                 for file in files]
+        messages = [{"role": "system", "content": (ctx.config.get("prompt") or DEFAULT_PROMPT) + "\n" + OUTPUT_CONTRACT},
+                    {"role": "user", "content": json.dumps({"files": clues, "instructions": flow["instructions"]}, ensure_ascii=False)}]
         ctx.mt.runtime.checkpoint()
-        key = (tmdb_id, season)
-        if key not in cache:
-            try:
-                episodes = ctx.mt.tmdb.season(id=tmdb_id, season=season)
-                if not isinstance(episodes, list) or any(not integer(ep) for ep in episodes):
-                    raise SDKError("TMDB 季集响应无效，请稍后重试", "TMDB_LOOKUP_FAILED", True)
-                cache[key] = episodes
-            except SDKError as error:
-                if error.code == "CANCELLED":
-                    raise
-                cache[key] = error
-        value = cache[key]
-        if isinstance(value, SDKError):
-            raise value
-        return value
-
-    def _check_seasons(self, ctx: Context, identities: dict[str, dict], cache: dict) -> list[dict]:
-        issues = []
-        for ref, identity in identities.items():
-            if identity.get("mediaType") != "tv" or identity.get("multiEpisode") or not integer(identity.get("tmdbId")) or not integer(identity.get("season"), 0) or not integer(identity.get("episode")):
-                continue
-            tmdb_id, season, episode = identity["tmdbId"], identity["season"], identity["episode"]
-            try:
-                episodes = self._season(ctx, tmdb_id, season, cache)
-                if episode in episodes:
-                    continue
-                error = SDKError(f"TMDB #{tmdb_id} 第 {season} 季未收录第 {episode} 集，请核对季集映射", "TMDB_EPISODE_NOT_FOUND")
-            except SDKError as failure:
-                if failure.code == "CANCELLED":
-                    raise
-                error = failure
-            except ValueError:
-                error = SDKError("AI 返回的季号超出支持范围，请核对季集", "INVALID_ARGUMENT")
-            issues.append({"fileRef":ref,"tmdbId":tmdb_id,"season":season,"episode":episode,"code":error.code,
-                "message":f"季集未通过核验：{error}","retryable":error.retryable})
-        return issues
+        response = ctx.mt.ai.chat(messages=messages, file_refs=[file["ref"] for file in files], single_request=True)
+        return parse_identity(response.get("message", {}).get("content", ""), {file["ref"] for file in files})
 
     def _process(self, ctx: Context, flow: dict):
         items = [read(ctx,flow["key"]+"/"+ref) for ref in flow["refs"]]
         failure: SDKError | None = None
         for offset in range(0,len(items),8):
-            batch=items[offset:offset+8]
+            batch=[item for item in items[offset:offset+8] if item["status"] == "pending"]
+            if not batch:
+                continue
             ctx.mt.runtime.progress(completed=offset,total=len(items),message="AI 识别")
             ctx.mt.log(level="info",message=f"识别第 {offset+1} 至 {min(offset+8,len(items))} 个文件")
             try:
@@ -250,35 +192,49 @@ class Plugin(BasePlugin):
                 ctx.mt.runtime.result(value=self._views(items))
                 ctx.mt.log(level="error", message=f"AI 识别中止（{error.code}）：{message}")
                 break
+            # Publish the complete batch before any metadata lookup or file operation.
             for item in batch:
-                identity=identities.get(item["file"]["ref"],{})
-                item["identity"]=identity
-                item["title"]=str(identity.get("title", ""))[:300]
-                kind=identity.get("mediaType")
-                if identity.get("_seasonError"):
-                    item.update(status="needs_review",error=identity["_seasonError"])
-                elif not item["title"] or kind not in ("movie","tv") or not integer(identity.get("tmdbId")) or identity.get("multiEpisode") or kind=="tv" and (not integer(identity.get("season"),0) or not integer(identity.get("episode"))):
-                    item.update(status="needs_review",error="作品身份或季集不完整，请人工处理")
-                else:
-                    proposal={"fileRef":item["file"]["ref"],"profileId":flow["profileId"],"tmdbId":identity["tmdbId"],"mediaType":kind}
-                    if kind=="tv":
-                        proposal.update(season=identity["season"],episode=identity["episode"])
-                    # Persist ambiguity before crossing the business submission boundary.
-                    item.update(status="outcome_unknown",error="正在提交；若中断请先核对任务")
-                    save(ctx,flow["key"]+"/"+item["file"]["ref"],item)
-                    if flow["review"]:
-                        draft=ctx.mt.organize.manual.prepare({**proposal,"reason":str(identity.get("reason","AI 识别"))[:500]})
-                        item.update(status=draft["status"],error=draft.get("error",""),draftId=draft["id"])
-                    else:
-                        try:
-                            task=ctx.mt.organize.manual.run({**proposal,"idempotencyKey":flow["key"]+":"+item["file"]["ref"]})
-                            item.update(status=task["status"],taskRef=task["ref"],error="已入队，等待任务最终结果")
-                            flow["taskRefs"].append(task["ref"])
-                        except SDKError as error:
-                            item["error"]=f"提交结果待核对，不自动重试：{error.code}"
-                    ctx.mt.log(level="info",message=f"{item['file']['name']}：{item['status']}")
-                save(ctx,flow["key"]+"/"+item["file"]["ref"],item)
+                identity = identities.get(item["file"]["ref"], {})
+                validation_error = identity_error(identity)
+                item.update(identity=identity, title=identity.get("title", "") if isinstance(identity.get("title"), str) else "",
+                            recognitionStatus="unknown" if validation_error else "recognized",
+                            status="unrecognized" if validation_error else "recognized", error=validation_error)
+                save(ctx, flow["key"]+"/"+item["file"]["ref"], item)
             ctx.mt.runtime.result(value=self._views(items))
+            ctx.mt.runtime.progress(completed=min(offset+8,len(items)),total=len(items),message="本批 AI 识别完成，正在准备整理")
+            for item in batch:
+                if item["status"] != "recognized":
+                    continue
+                ctx.mt.runtime.checkpoint()
+                identity = item["identity"]
+                proposal = {"fileRef":item["file"]["ref"], "profileId":flow["profileId"],
+                            "tmdbId":identity["tmdbId"], "mediaType":identity["mediaType"]}
+                if identity["mediaType"] == "tv":
+                    proposal.update(season=identity["season"],episode=identity["episode"])
+                # Persist ambiguity before crossing the business submission boundary.
+                item.update(status="outcome_unknown",error="正在提交整理；若中断请先核对任务",organizeStartedAt=time.time(),
+                            organizeTiming="prepare" if flow["review"] else "task")
+                save(ctx,flow["key"]+"/"+item["file"]["ref"],item)
+                try:
+                    if flow["review"]:
+                        draft = ctx.mt.organize.manual.prepare({**proposal,"reason":identity.get("reason", "AI 识别")[:500]})
+                        item.update(status=draft["status"],error=draft.get("error",""),draftId=draft["id"],
+                                    organizeDurationMs=organization_elapsed(item))
+                    else:
+                        task = ctx.mt.organize.manual.run({**proposal,"idempotencyKey":flow["key"]+":"+item["file"]["ref"]})
+                        item.update(status=task["status"],taskRef=task["ref"],error="AI 识别完成，等待整理任务结果")
+                        flow["taskRefs"].append(task["ref"])
+                except SDKError as error:
+                    if error.code == "CANCELLED":
+                        raise
+                    # Unknown commit outcomes are never retried. Explicit rejection is a file-level failure.
+                    ambiguous = not flow["review"] and error.code in ("OUTCOME_UNKNOWN", "OPERATION_FAILED", "INTERNAL_ERROR")
+                    item.update(status="outcome_unknown" if ambiguous else "organize_failed",
+                                error=f"{'整理提交结果待核对，不自动重试' if ambiguous else '整理失败'}：{error.code} · {error}",
+                                organizeDurationMs=organization_elapsed(item))
+                save(ctx,flow["key"]+"/"+item["file"]["ref"],item)
+                ctx.mt.runtime.result(value=self._views(items))
+                ctx.mt.log(level="info",message=f"{item['file']['name']}：{item['status']}")
         flow["stage"]="waiting" if flow["taskRefs"] else "failed" if failure else "review" if flow["review"] else "done"
         flow["organizeParent"]=ctx.run_id
         save(ctx,flow["key"],flow)
@@ -299,7 +255,9 @@ class Plugin(BasePlugin):
             item=read(ctx,key)
             if item["taskRef"] in tasks:
                 task=tasks[item["taskRef"]]
-                item.update(status=task["status"],error=(task.get("error") or {}).get("message", ""))
+                item.update(status="organize_failed" if task["status"] == "failed" else task["status"],
+                            error=(task.get("error") or {}).get("message", ""),
+                            organizeDurationMs=organization_elapsed(item, task.get("updatedAt", "")))
                 save(ctx,key,item)
         flow["stage"]="done"
         save(ctx,flow["key"],flow)
@@ -314,7 +272,9 @@ class Plugin(BasePlugin):
         for item in items:
             ref=item["file"]["ref"]
             rows.append({"fileRef":ref,"name":item["file"]["name"],"title":item["title"],"status":item["status"],"error":item["error"],
-                         "detail":{"identity":item.get("identity",{}),"taskRef":item["taskRef"],"path":item["file"]["path"]}})
+                         "recognitionStatus":item.get("recognitionStatus", ""),
+                         "detail":{"identity":item.get("identity",{}),"taskRef":item["taskRef"],"path":item["file"]["path"],
+                                   "organizeDurationMs":item.get("organizeDurationMs"), "organizeTiming":item.get("organizeTiming", "task") }})
         return rows
 
     @query("history")

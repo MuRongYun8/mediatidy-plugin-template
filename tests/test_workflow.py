@@ -1,5 +1,6 @@
 """Exercise the Python plugin against the public SDK with an in-memory host."""
 from copy import deepcopy
+from unittest.mock import patch
 import json
 from pathlib import Path
 import unittest
@@ -27,6 +28,8 @@ class Host:
         self.replies = []
         self.chat_results = []
         self.submit_error = None
+        self.file_errors = {}
+        self.checkpoint_error = None
         self.seasons = {}
 
     def call(self, invocation, method, args):
@@ -69,12 +72,18 @@ class Host:
             if row["status"] != "outcome_unknown":
                 raise AssertionError("Submission was not persisted before calling the host")
             self.submissions.append(deepcopy(args))
+            if args["fileRef"] in self.file_errors:
+                raise self.file_errors[args["fileRef"]]
             if self.submit_error:
                 raise self.submit_error
             return {"ref": "task-" + args["fileRef"], "status": "queued"}
         elif method == "organize.manual.prepare":
             self.prepared.append(deepcopy(args))
+            if args["fileRef"] in self.file_errors:
+                raise self.file_errors[args["fileRef"]]
             return {"id": "draft-" + args["fileRef"], "status": "ready"}
+        elif method == "runtime.checkpoint" and self.checkpoint_error:
+            raise self.checkpoint_error
         elif method not in {"runtime.checkpoint", "runtime.progress", "runtime.result", "log"}:
             raise AssertionError("Unexpected host call: " + method)
         return True
@@ -85,6 +94,111 @@ class Host:
 
 
 class WorkflowTests(unittest.TestCase):
+    def assert_single_chat(self, host, count=1):
+        chats = [args for method, args in host.calls if method == "ai.chat"]
+        self.assertEqual(len(chats), count)
+        for chat in chats:
+            self.assertIs(chat["singleRequest"], True)
+            self.assertNotIn("tools", chat)
+            self.assertLessEqual(len(chat["fileRefs"]), 8)
+            self.assertEqual(len(chat["messages"]), 2)
+        self.assertFalse(any(m.startswith("tmdb.") or m in ("ai.web.search", "ai.capabilities") for m, _ in host.calls))
+        return chats
+
+    def test_two_files_one_request_minimal_input_and_results_before_organize(self):
+        host = Host()
+        files = [{**file("one"), "size":12345, "storageType":"private", "path":"root/show/season/one.mkv"}, file("two")]
+        Plugin().recognize({"profileId":7,"instructions":"Two movies"}, host.context(files=files, config={"prompt":"My custom prompt"}))
+        chat = self.assert_single_chat(host)[0]
+        self.assertIn("My custom prompt", chat["messages"][0]["content"])
+        payload = json.loads(chat["messages"][1]["content"])
+        self.assertEqual(set(payload["files"][0]), {"fileRef","name","directory"})
+        self.assertEqual(payload["instructions"], "Two movies")
+        publish = next(i for i, (method, _) in enumerate(host.calls) if method == "runtime.result")
+        submit = next(i for i, (method, _) in enumerate(host.calls) if method == "organize.manual.run")
+        self.assertLess(publish, submit)
+        self.assertEqual([r["status"] for r in host.calls[publish][1]["value"]], ["recognized", "recognized"])
+
+    def test_batches_have_at_most_eight_files(self):
+        host = Host()
+        Plugin().recognize({"profileId":7}, host.context(files=[file(str(i)) for i in range(17)]))
+        self.assertEqual([len(c["fileRefs"]) for c in self.assert_single_chat(host, 3)], [8,8,1])
+
+    def test_empty_invalid_or_tool_reply_never_retries(self):
+        for response in [{"content":""}, {"content":"not JSON"}, {"content":None}, {"content":"[]"},
+                         {"toolCalls":[{"name":"tmdb_search","arguments":"{}"}]}]:
+            with self.subTest(response=response):
+                host = Host(); host.replies = [response]
+                rows = Plugin().recognize({"profileId":7}, host.context(files=[file("one")]))
+                self.assert_single_chat(host)
+                self.assertEqual(rows[0]["status"],"unrecognized")
+                self.assertFalse(host.submissions)
+
+    def test_timeout_never_retries(self):
+        host = Host(); host.chat_results = [SDKError("Timed out", "AI_TIMEOUT", True)]
+        with self.assertRaises(SDKError):
+            Plugin().recognize({"profileId":7}, host.context(files=[file("one")]))
+        self.assert_single_chat(host)
+        self.assertFalse(host.submissions)
+
+    def test_partial_unknown_missing_and_invalid_items_do_not_block_valid_result(self):
+        for invalid in [{"tmdbId":None}, {"tmdbId":"123"}, {"tmdbId":True}, {"tmdbId":0}, {"year":False},
+                        {"title":{}}, {"reason":{}}, {"mediaType":"tv","season":10000,"episode":1}]:
+            with self.subTest(invalid=invalid):
+                host = Host(); host.replies = [{"content":json.dumps({"items":[{**identity("one"),**invalid},identity("two")]})}]
+                rows=Plugin().recognize({"profileId":7},host.context(files=[file("one"),file("two"),file("missing")]))
+                self.assertEqual([r["status"] for r in rows],["unrecognized","queued","unrecognized"])
+                self.assertEqual([p["fileRef"] for p in host.submissions],["two"])
+                self.assert_single_chat(host)
+
+    def test_exact_id_and_season_pass_through_and_business_error_keeps_identity(self):
+        for review in (False, True):
+            host = Host()
+            tv = {**identity("one"),"tmdbId":987654,"mediaType":"tv","season":5,"episode":1}
+            host.replies = [{"content":json.dumps({"items":[tv,identity("two")]})}]
+            host.file_errors["one"]=SDKError("TMDB ID 不存在", "TMDB_NOT_FOUND")
+            rows=Plugin().recognize({"profileId":7,"review":review},host.context(files=[file("one"),file("two")]))
+            proposals=host.prepared if review else host.submissions
+            self.assertEqual((proposals[0]["tmdbId"],proposals[0]["season"],proposals[0]["episode"]),(987654,5,1))
+            self.assertEqual(rows[0]["detail"]["identity"],tv)
+            self.assertEqual(rows[0]["recognitionStatus"],"recognized")
+            self.assertEqual(rows[0]["status"],"organize_failed")
+            self.assertIn("TMDB ID 不存在", rows[0]["error"])
+            self.assertEqual(len(proposals),2)
+            self.assert_single_chat(host)
+
+    def test_same_flow_reentry_never_reidentifies_or_resubmits(self):
+        host=Host(); plugin=Plugin(); ctx=host.context(files=[file("one")])
+        first=plugin.recognize({"profileId":7},ctx)
+        self.assertEqual(plugin.recognize({"profileId":7},ctx),first)
+        self.assert_single_chat(host)
+        self.assertEqual(len(host.submissions),1)
+
+    def test_checkpoint_cancel_stops_before_chat(self):
+        host=Host(); host.checkpoint_error=SDKError("Cancelled","CANCELLED")
+        with self.assertRaises(SDKError):
+            Plugin().recognize({"profileId":7},host.context(files=[file("one")]))
+        self.assertFalse(host.submissions)
+        self.assert_single_chat(host,0)
+
+    def test_organization_timing_uses_task_completion_not_late_callback(self):
+        host=Host(); plugin=Plugin()
+        with patch("plugin.time.time", return_value=1000):
+            plugin.recognize({"profileId":7},host.context(files=[file("one")]))
+        event={"parentRunId":"run-start","tasks":[{"ref":"task-one","status":"done","updatedAt":"1970-01-01T00:16:42Z"}]}
+        with patch("plugin.time.time", return_value=9999):
+            rows=plugin.organize_complete({"flowKey":"ai/flow/flow"},host.context(event=event))
+        self.assertEqual(rows[0]["detail"]["organizeDurationMs"],2000)
+        self.assertEqual(rows[0]["recognitionStatus"],"recognized")
+
+    def test_cancellation_at_submission_retains_identity_and_never_retries(self):
+        host=Host();host.submit_error=SDKError("Cancelled","CANCELLED")
+        with self.assertRaises(SDKError):
+            Plugin().recognize({"profileId":7},host.context(files=[file("one"),file("two")]))
+        self.assertEqual(len(host.submissions),1)
+        self.assertEqual(host.values["ai/flow/flow/one"]["identity"]["tmdbId"],123)
+        self.assert_single_chat(host)
+
     def test_ai_failure_publishes_file_errors_without_submitting(self):
         for review in (False, True):
             with self.subTest(review=review):
@@ -115,15 +229,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual([row["status"] for row in rows], ["done"] * 8 + ["failed"] * 2)
         self.assertEqual(len(host.submissions), 8)
 
-    def test_unsupported_tools_retry_plain_chat_instead_of_empty_results(self):
-        host = Host()
-        host.chat_results = [{"toolsUnavailable": True, "message": {"role": "assistant"}}]
-        rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
-        chats = [args for method, args in host.calls if method == "ai.chat"]
-        self.assertEqual(len(chats), 2)
-        self.assertTrue(chats[0]["tools"])
-        self.assertEqual(chats[1]["tools"], [])
-        self.assertEqual(rows[0]["status"], "queued")
 
     def test_ai_cancellation_is_not_reported_as_provider_failure(self):
         host = Host()
@@ -145,7 +250,7 @@ class WorkflowTests(unittest.TestCase):
         plugin = Plugin()
         ctx = host.context(run="run-complete", event=event)
         rows = plugin.organize_complete({"flowKey": "ai/flow/flow"}, ctx)
-        self.assertEqual([row["status"] for row in rows], ["done", "failed"])
+        self.assertEqual([row["status"] for row in rows], ["done", "organize_failed"])
         self.assertEqual(rows[1]["error"], "Target unavailable")
         self.assertEqual(len(plugin.history({}, ctx)["items"]), 3)
         self.assertEqual(plugin.detail({"key": "ai/flow/flow/one"}, ctx)["taskRef"], "task-one")
@@ -190,103 +295,25 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(host.submissions), 1)
         self.assertFalse(host.waits)
 
-    def test_incomplete_identity_requires_review(self):
+    def test_incomplete_identity_is_skipped(self):
         for invalid in [{"tmdbId": True}, {"mediaType": "tv", "season": 1}, {"multiEpisode": True}]:
             with self.subTest(invalid=invalid):
                 host = Host()
                 host.replies = [{"content": json.dumps({"items": [{**identity("one"), **invalid}]})}]
                 rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
-                self.assertEqual(rows[0]["status"], "needs_review")
+                self.assertEqual(rows[0]["status"], "unrecognized")
                 self.assertFalse(host.submissions)
 
-    def test_tool_result_reaches_ai_and_repeated_queries_stop(self):
-        tool = {"role": "assistant", "toolCalls": [{"id": "lookup", "name": "web_search", "arguments": '{"query":"Example"}'}]}
-        for repeated in [False, True]:
-            with self.subTest(repeated=repeated):
-                host = Host()
-                host.replies = [deepcopy(tool), deepcopy(tool) if repeated else {"content": json.dumps({"items": [identity("one")]})}]
-                rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
-                chat = [args for method, args in host.calls if method == "ai.chat"]
-                self.assertEqual(chat[1]["messages"][-1]["role"], "tool")
-                self.assertEqual(len([method for method, _ in host.calls if method == "ai.web.search"]), 1)
-                self.assertEqual(rows[0]["status"], "needs_review" if repeated else "queued")
 
     def test_invalid_and_duplicate_file_references_are_rejected(self):
         items = [identity("one"), identity("one"), identity("foreign"), {"fileRef": []}, {"fileRef": {}}]
         self.assertEqual(parse_identity(json.dumps({"items": items}), {"one"}), {})
         self.assertEqual(parse_identity("invalid JSON", {"one"}), {})
 
-    def test_ai_corrects_release_season_to_verified_special_before_submission(self):
-        for review in (False, True):
-            with self.subTest(review=review):
-                host = Host()
-                original = {**identity("one"), "mediaType": "tv", "season": 5, "episode": 1}
-                corrected = {**original, "season": 0, "reason": "发行版 S05E01 对应 TMDB 特别篇 S00E01，已核对公开资料"}
-                host.seasons = {(123, 5): SDKError("TMDB 未收录第 5 季", "TMDB_SEASON_NOT_FOUND"), (123, 0): [1]}
-                host.replies = [
-                    {"role": "assistant", "content": json.dumps({"items": [original]})},
-                    {"role": "assistant", "toolCalls": [
-                        {"id": "detail", "name": "tmdb_detail", "arguments": '{"id":123,"mediaType":"tv"}'},
-                        {"id": "specials", "name": "tmdb_season", "arguments": '{"id":123,"season":0}'},
-                    ]},
-                    {"role": "assistant", "content": json.dumps({"items": [corrected]})},
-                ]
-                rows = Plugin().recognize({"profileId": 7, "review": review}, host.context(files=[file("one")], config={"prompt": "Use my custom recognition instructions."}))
-                proposal = (host.prepared if review else host.submissions)[0]
-                self.assertEqual((proposal["season"], proposal["episode"]), (0, 1))
-                self.assertEqual(rows[0]["detail"]["identity"]["reason"], corrected["reason"])
-                chats = [args for method, args in host.calls if method == "ai.chat"]
-                self.assertIn("Use my custom recognition instructions.", chats[0]["messages"][0]["content"])
-                self.assertIn("不能仅照抄文件名", chats[0]["messages"][0]["content"])
-                self.assertIn("TMDB_SEASON_NOT_FOUND", chats[1]["messages"][-1]["content"])
-                self.assertEqual([args["season"] for method, args in host.calls if method == "tmdb.season"], [5, 0])
-                if review:
-                    self.assertFalse(host.submissions)
 
-    def test_unknown_season_mapping_stops_after_bounded_repairs(self):
-        host = Host()
-        original = {**identity("one"), "mediaType": "tv", "season": 5, "episode": 1}
-        host.seasons[(123, 5)] = SDKError("TMDB 未收录第 5 季", "TMDB_SEASON_NOT_FOUND")
-        host.replies = [{"content": json.dumps({"items": [original]})} for _ in range(3)]
-        rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
-        self.assertEqual(rows[0]["status"], "needs_review")
-        self.assertIn("第 5 季", rows[0]["error"])
-        self.assertEqual(len([m for m, _ in host.calls if m == "ai.chat"]), 3)
-        self.assertEqual(len([m for m, _ in host.calls if m == "tmdb.season"]), 1)
-        self.assertFalse(host.submissions)
-        self.assertFalse(host.prepared)
 
-    def test_lookup_failure_does_not_guess_a_different_season_or_block_valid_files(self):
-        for code in ("TMDB_LOOKUP_FAILED", "TMDB_AUTH_FAILED", "OPERATION_FAILED"):
-            with self.subTest(code=code):
-                host = Host()
-                tv = {**identity("two"), "mediaType": "tv", "season": 1, "episode": 1}
-                host.seasons[(123, 1)] = SDKError("查询失败，尚不能确认目标季是否存在", code, True)
-                host.replies = [{"content": json.dumps({"items": [identity("one"), tv]})}]
-                rows = Plugin().recognize({"profileId": 7}, host.context(files=[file("one"), file("two")]))
-                self.assertEqual([row["status"] for row in rows], ["queued", "needs_review"])
-                self.assertEqual([p["fileRef"] for p in host.submissions], ["one"])
-                self.assertIn("尚不能确认", rows[1]["error"])
-                self.assertEqual(len([m for m, _ in host.calls if m == "ai.chat"]), 1)
 
-    def test_missing_episode_is_repaired_against_actual_episode_list(self):
-        host = Host()
-        original = {**identity("one"), "mediaType": "tv", "season": 1, "episode": 3}
-        host.seasons[(123, 1)] = [1, 2]
-        host.replies = [{"content": json.dumps({"items": [item]})} for item in (original, {**original, "episode": 2})]
-        Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
-        self.assertEqual(host.submissions[0]["episode"], 2)
-        self.assertEqual(len([m for m, _ in host.calls if m == "tmdb.season"]), 1)
 
-    def test_season_lookup_cancellation_never_submits(self):
-        host = Host()
-        host.replies = [{"content": json.dumps({"items": [{**identity("one"), "mediaType": "tv", "season": 1, "episode": 1}]})}]
-        host.seasons[(123, 1)] = SDKError("Cancelled", "CANCELLED")
-        with self.assertRaises(SDKError) as caught:
-            Plugin().recognize({"profileId": 7}, host.context(files=[file("one")]))
-        self.assertEqual(caught.exception.code, "CANCELLED")
-        self.assertFalse(host.submissions)
-        self.assertFalse(host.prepared)
 
     def test_prompt_default_and_config_validation(self):
         manifest = json.loads((Path(__file__).resolve().parents[1] / "plugin.json").read_text("utf-8"))
