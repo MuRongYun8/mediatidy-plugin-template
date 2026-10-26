@@ -306,7 +306,7 @@ class WorkflowTests(unittest.TestCase):
                 host = Host()
                 Plugin().recognize({"profileId": 7}, host.context(files=[file("directory", directory=True)]))
                 event = {"parentRunId": parent, "tasks": [{"ref": "scan-task", "status": status}]}
-                with self.assertRaises(ValueError):
+                with self.assertRaises(ValueError if parent == "wrong-run" else SDKError):
                     Plugin().scan_complete({"flowKey": "ai/flow/flow"}, host.context(event=event))
                 self.assertFalse(host.submissions)
                 self.assertNotIn("ai.chat", [method for method, _ in host.calls])

@@ -270,14 +270,33 @@ class Plugin(BasePlugin):
         return self._process(ctx,flow)
 
     def _append(self, ctx: Context, flow: dict, files: list[dict]):
-        for file in files:
-            if file["ref"] in flow["refs"]:
-                continue
-            if len(flow["refs"]) >= 100:
-                raise ValueError("超过 100 个视频，请缩小范围；已有结果已保留")
+        # Check the entire page before writing file rows or changing references.
+        pending = {file["ref"]: file for file in files if file["ref"] not in flow["refs"]}
+        count = len(flow["refs"]) + len(pending)
+        if count > 100:
+            self._scan_limit_exceeded(ctx, flow, count)
+        for file in pending.values():
             flow["refs"].append(file["ref"])
             save(ctx, flow["key"]+"/"+file["ref"], {"file":file,"status":"pending","title":"","error":"","taskRef":""})
         save(ctx,flow["key"],flow)
+
+    def _scan_limit_exceeded(self, ctx: Context, flow: dict, count: int):
+        flow["scanFileCount"] = count
+        self._scan_failed(ctx, flow,
+            f"已发现至少 {count} 个视频，超过每轮最多 100 个的限制。请减少所选目录或分批选择，每轮不超过 100 个视频。本次未调用 AI，也未提交整理。",
+            "FILE_LIMIT_EXCEEDED")
+
+    def _scan_failed(self, ctx: Context, flow: dict, message: str, code: str):
+        flow.update(stage="scan_failed", error=message)
+        # A partial scan must not remain pending or be retried as a complete selection.
+        for ref in flow["refs"]:
+            item = read(ctx, flow["key"]+"/"+ref)
+            item.update(status="failed", error=message)
+            save(ctx, flow["key"]+"/"+ref, item)
+        save(ctx, flow["key"], flow)
+        ctx.mt.runtime.result(value=self._rows(ctx, flow))
+        ctx.mt.log(level="error", message=f"扫描未完成（{code}）：{message}")
+        raise SDKError(message, code)
 
     def _event_flow(self, ctx: Context, input: dict, stage: str) -> dict:
         key = input["flowKey"]
@@ -293,9 +312,16 @@ class Plugin(BasePlugin):
     @continuation("scan-complete")
     def scan_complete(self, input: dict, ctx: Context):
         flow = self._event_flow(ctx,input,"scan")
+        if flow.get("stage") == "scan_failed":
+            raise SDKError(flow["error"], "SCAN_FAILED")
+        failed = [task for task in ctx.event["tasks"] if task["status"] != "done"]
+        if any((task.get("error") or {}).get("code") == "QUOTA_EXCEEDED"
+               and "扫描达到文件上限" in (task.get("error") or {}).get("message", "") for task in failed):
+            # files.scan(limit=100) fails only when it encounters another video.
+            self._scan_limit_exceeded(ctx, flow, 101)
+        if failed:
+            self._scan_failed(ctx, flow, "目录扫描未成功，请查看扫描任务并重新选择片源。本次未调用 AI，也未提交整理。", "SCAN_FAILED")
         for task in ctx.event["tasks"]:
-            if task["status"] != "done":
-                raise ValueError("扫描未成功，请检查扫描任务；没有自动提交整理")
             offset = 0
             while True:
                 page = ctx.mt.tasks.items(ref=task["ref"],offset=offset,limit=100)
