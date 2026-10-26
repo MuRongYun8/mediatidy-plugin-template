@@ -199,3 +199,13 @@ test('result and answer paging follows the selected flow and refreshes with run 
   assert.equal(evaluate(model, query.input).page, 1);
   assert.deepEqual(evaluate({run: {result: [{name: 'legacy'}]}}, table.props.source), [{name: 'legacy'}]);
 });
+
+test('series grouping waits visibly and conflicts cannot look ready to confirm', () => {
+  const waiting = visibleCells({name:'E016.mkv',status:'group_pending',recognitionStatus:'recognized',detail:{identity:{tmdbId:2661,mediaType:'tv',season:30,episode:16}}});
+  assert.match(waiting[2], /等待同剧核对/);
+  assert.doesNotMatch(waiting[2], /待确认|TMDB 核对通过/);
+  const conflict = visibleCells({name:'E017.mkv',status:'identity_conflict',recognitionStatus:'conflict',error:'2661 / S30；155371 / S1，整组未提交整理',detail:{identity:{tmdbId:155371,mediaType:'tv',season:1,episode:17}}});
+  assert.match(conflict[2], /同剧识别冲突，未整理/);
+  assert.match(conflict[2], /2661.*155371/);
+  assert.doesNotMatch(conflict[2], /待确认|AI 识别完成|TMDB 核对通过/);
+});

@@ -9,10 +9,10 @@ def host(name):
 def badges(path, fallback="状态待核对"):
     status = ui.ref(path) if isinstance(path, str) else path
     groups = [
-        ("primary", {"pending": "等待识别", "recognized": "识别完成，待核对", "verifying": "核对 TMDB", "queued": "整理已排队", "running": "处理中", "waiting": "等待整理", "submitted": "已提交", "submitting": "提交中"}),
+        ("primary", {"pending": "等待识别", "recognized": "识别完成，待核对", "group_pending": "等待同剧核对", "verifying": "核对 TMDB", "queued": "整理已排队", "running": "处理中", "waiting": "等待整理", "submitted": "已提交", "submitting": "提交中"}),
         ("success", {"done": "已完成", "ready": "待确认", "success": "已完成", "completed": "已完成"}),
         ("warning", {"needs_review": "需人工处理", "outcome_unknown": "结果待核对", "submission_unknown": "提交待核对", "interrupted": "已中断"}),
-        ("danger", {"failed": "失败", "organize_failed": "整理失败", "verification_failed": "核对失败，已跳过"}),
+        ("danger", {"failed": "失败", "identity_conflict": "同剧识别冲突，未整理", "organize_failed": "整理失败", "verification_failed": "核对失败，已跳过"}),
         ("muted", {"cancelled": "已取消", "unrecognized": "未识别，已跳过"}),
     ]
     known: list[str] = []
@@ -169,7 +169,7 @@ def recognition_page():
                 ui.Alert(text=ui.ref("run.error"), tone="danger", visible=ui.ref("run.error")),
                 ui.Text(text="重试沿用原方案与补充说明，识别成功后按原处理方式整理。已成功的结果保留在原运行记录。", tone="muted", size="sm", visible=can_retry),
                 ui.Text(text=ui.ref("query.retry.data.message"), tone="muted", size="sm", visible=ui.ref("query.retry.data.message")),
-                ui.Text(text="AI 原生搜索结论先显示，再核对该 TMDB ID 的作品与年份后整理。未识别的文件自动跳过并保留原位；整理失败不会重新识别。", tone="muted", size="sm"),
+                ui.Text(text="AI 结论先显示，再核对 TMDB。可归为同组的分集文件会等待整组识别完成；ID 或季号冲突时整组不整理，可重试整组识别。未识别文件保留原位；整理失败不会重新识别。", tone="muted", size="sm"),
                 ui.Stack(
                     ui.Button(label=ui.expr("concat", "重试识别（", ui.ref("query.retry.data.count"), " 个文件）"), visible=can_retry,
                         onClick=[{"type": "invoke", "actionId": "retry-recognition", "input": {"flowKey": ui.ref("query.retry.data.flowKey")}}]),
