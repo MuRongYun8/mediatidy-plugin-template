@@ -8,11 +8,26 @@ const generated = spawnSync(process.env.PYTHON || 'python', ['-c', 'import json;
   cwd: path.resolve(__dirname, '..'), encoding: 'utf8',
 });
 assert.equal(generated.status, 0, generated.stderr);
-const page = validatePage(JSON.parse(generated.stdout), ['recognize'], ['history', 'detail']);
+const page = validatePage(JSON.parse(generated.stdout), ['recognize', 'retry-recognition'], ['history', 'detail', 'retry-state']);
 const results = page.content[0].children.find(n => n.props?.title === '识别结果');
 const table = results.children.find(n => n.component === 'Table');
 const draftSection = results.children.find(n => n.component === 'Section');
 const draftTable = draftSection.children.find(n => n.component === 'Table');
+
+test('manual retry uses the original flow and is available only when idle with eligible files', () => {
+  const card = page.content[0].children.find(n => n.props?.title === '本次识别');
+  const button = card.children.flatMap(n => n.children || []).find(n => n.props?.onClick?.[0]?.actionId === 'retry-recognition');
+  assert.ok(button);
+  for (const status of ['failed', 'done', 'running', 'waiting', 'queued']) {
+    const model = { run: { id: 'root', flowId: 'original-flow', status }, query: { retry: { data: { count: 2, flowKey: 'ai/flow/original-flow' } } } };
+    assert.equal(evaluate(model, button.props.visible), ['failed', 'done'].includes(status));
+    assert.equal(evaluate(model, button.props.label), '重试识别（2 个文件）');
+    assert.deepEqual(evaluate(model, button.props.onClick[0].input), { flowKey: 'ai/flow/original-flow' });
+    assert.deepEqual(evaluate(model, page.queries[0].input), { flowKey: 'ai/flow/original-flow' });
+  }
+  assert.equal(evaluate({ run: { status: 'failed' }, query: { retry: { data: { count: 0 } } } }, button.props.visible), false);
+  assert.equal(evaluate({ run: { status: 'failed' }, query: {} }, button.props.visible), false);
+});
 
 function visibleCells(row, { expanded = false, columns = table.props.columns } = {}) {
   function render(nodes) {

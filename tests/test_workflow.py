@@ -42,6 +42,7 @@ class Host:
         self.checkpoint_error = None
         self.seasons = {}
         self.details = {}
+        self.stat_results = {}
 
     def call(self, invocation, method, args):
         self.calls.append((method, deepcopy(args)))
@@ -53,6 +54,11 @@ class Host:
             return {"items": [{"key": k, "value": deepcopy(v)} for k, v in self.values.items() if k.startswith(args["prefix"])]}
         elif method == "files.scan":
             return {"ref": "scan-task", "status": "queued"}
+        elif method == "files.stat":
+            result = self.stat_results.get(args["path"], file(args["path"]))
+            if isinstance(result, Exception):
+                raise result
+            return deepcopy(result)
         elif method == "tasks.items":
             return {"items": [{"file": f} for f in self.scan_files], "nextOffset": 0}
         elif method == "tasks.wait":
@@ -82,7 +88,7 @@ class Host:
             return result
         elif method == "organize.manual.run":
             # The durable ambiguity marker must exist before a write can occur.
-            row = self.values["ai/flow/flow/" + args["fileRef"]]
+            row = self.values[args["idempotencyKey"].rsplit(":", 1)[0] + "/" + args["fileRef"]]
             if row["status"] != "outcome_unknown":
                 raise AssertionError("Submission was not persisted before calling the host")
             self.submissions.append(deepcopy(args))
@@ -102,8 +108,8 @@ class Host:
             raise AssertionError("Unexpected host call: " + method)
         return True
 
-    def context(self, *, run="run-start", files=(), event=None, config=None):
-        return Context({"runId": run, "flowId": "flow", "files": list(files), "event": event,
+    def context(self, *, run="run-start", flow="flow", files=(), event=None, config=None):
+        return Context({"runId": run, "flowId": flow, "files": list(files), "event": event,
                         "config": config or {}, "instanceId": "instance"}, self, run)
 
 

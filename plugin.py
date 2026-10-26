@@ -141,6 +141,63 @@ class Plugin(BasePlugin):
     def get_page(self, ctx: Context):
         return recognition_page()
 
+    def _retry_items(self, ctx: Context, flow: dict) -> list[dict]:
+        if flow.get("stage") not in ("failed", "done", "review") or flow.get("retriedBy"):
+            return []
+        items = [read(ctx, flow["key"]+"/"+ref) for ref in flow["refs"]]
+        return [item for item in items if item["status"] in ("failed", "unrecognized")
+                and not item.get("taskRef") and not item.get("draftId")
+                and not item.get("identityVerified") and item.get("recognitionStatus") != "recognized"]
+
+    def _retry_flow(self, ctx: Context, key: str) -> dict:
+        if not isinstance(key, str) or not re.fullmatch(r"ai/flow/[A-Za-z0-9-]+", key):
+            raise SDKError("无效识别记录，请从运行记录重新打开", "INVALID_ARGUMENT")
+        flow = read(ctx, key)
+        if flow.get("key") != key:
+            raise SDKError("识别记录不完整，请重新选择文件", "INVALID_ARGUMENT")
+        return flow
+
+    @query("retry-state")
+    def retry_state(self, input: dict, ctx: Context):
+        key = input.get("flowKey", "")
+        if not key:
+            return {"count": 0}
+        stored = ctx.mt.storage.get(key=key)
+        if not stored["found"]:
+            return {"count": 0}
+        flow = self._retry_flow(ctx, key)
+        return {"flowKey": key, "count": len(self._retry_items(ctx, flow)),
+                "message": "已创建重试，请在运行记录中查看新一轮结果" if flow.get("retriedBy") else ""}
+
+    @action("retry-recognition")
+    def retry_recognition(self, input: dict, ctx: Context):
+        key = "ai/flow/" + ctx.flow_id
+        previous = ctx.mt.storage.get(key=key)
+        if previous["found"]:
+            return self._rows(ctx, previous["value"])
+        original = self._retry_flow(ctx, input["flowKey"])
+        items = self._retry_items(ctx, original)
+        if not items:
+            raise SDKError("没有可重试的识别项，或已创建重试；请刷新结果或查看运行记录", "NOTHING_TO_RETRY")
+        files = []
+        for item in items:
+            ctx.mt.runtime.checkpoint()
+            old = item["file"]
+            current = ctx.mt.files.stat(root_id=old["rootId"], path=old["path"])
+            if current["isDir"] or old.get("version") and current.get("version") != old["version"]:
+                raise SDKError("片源已变化，请重新选择文件后识别", "RESOURCE_CHANGED")
+            files.append(current)
+        flow = {"key": key, "createdAt": time.time(), "profileId": original["profileId"],
+                "instructions": original["instructions"], "review": original["review"],
+                "refs": [], "scanTasks": [], "taskRefs": [], "stage": "scan", "sourceFlow": original["key"]}
+        self._append(ctx, flow, files)
+        # Claim before AI/business work. A stale click must not repeat a retry
+        # which may already have submitted files; further retries use its run.
+        original["retriedBy"] = key
+        save(ctx, original["key"], original)
+        ctx.mt.log(level="info", message=f"手动重试 {len(files)} 个识别失败或未识别文件，沿用原方案与补充说明")
+        return self._process(ctx, flow)
+
     @action("recognize")
     def recognize(self, input: dict, ctx: Context):
         key = "ai/flow/" + ctx.flow_id
@@ -232,7 +289,7 @@ class Plugin(BasePlugin):
             except SDKError as error:
                 if error.code == "CANCELLED":
                     raise
-                message = str(error) if error.code != "OPERATION_FAILED" else "AI 请求未完成；当前 MT 未提供具体原因，请更新主程序后重试并查看 AI 日志"
+                message = str(error) if error.code != "OPERATION_FAILED" else "AI 请求未完成；宿主未返回具体原因，请查看插件日志中的 ai.chat 失败记录，修复后可重试识别"
                 failure = SDKError(message, error.code, error.retryable)
                 # Keep a row for every file even when the model returns nothing.
                 # Earlier business submissions remain tracked and are never retried here.

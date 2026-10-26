@@ -103,6 +103,7 @@ def recognition_page():
     running = ui.expr("includes", ["queued", "running", "waiting", "submitting"], ui.ref("run.status"))
     has_rows = ui.expr("gt", ui.expr("length", ui.ref("run.result")), 0)
     has_drafts = ui.expr("gt", ui.expr("length", ui.ref("run.drafts")), 0)
+    can_retry = ui.expr("and", ui.expr("not", running), ui.expr("gt", ui.ref("query.retry.data.count"), 0))
     review = ui.ref("input.review")
     return ui.page(
         ui.Page(
@@ -149,8 +150,12 @@ def recognition_page():
                 ui.Progress(label=ui.expr("coalesce", ui.ref("run.progress.message"), "正在准备识别"),
                     value=ui.ref("run.progress.completed"), total=ui.ref("run.progress.total"), visible=running),
                 ui.Alert(text=ui.ref("run.error"), tone="danger", visible=ui.ref("run.error")),
+                ui.Text(text="重试沿用原方案与补充说明，识别成功后按原处理方式整理。已成功的结果保留在原运行记录。", tone="muted", size="sm", visible=can_retry),
+                ui.Text(text=ui.ref("query.retry.data.message"), tone="muted", size="sm", visible=ui.ref("query.retry.data.message")),
                 ui.Text(text="AI 原生搜索结论先显示，再核对该 TMDB ID 的作品与年份后整理。未识别的文件自动跳过并保留原位；整理失败不会重新识别。", tone="muted", size="sm"),
                 ui.Stack(
+                    ui.Button(label=ui.expr("concat", "重试识别（", ui.ref("query.retry.data.count"), " 个文件）"), visible=can_retry,
+                        onClick=[{"type": "invoke", "actionId": "retry-recognition", "input": {"flowKey": ui.ref("query.retry.data.flowKey")}}]),
                     ui.Button(label="修正或确认整理", visible=has_drafts, onClick=host("reviewDrafts")),
                     ui.Button(label="刷新结果", variant="outline", onClick=host("refreshRun")),
                     ui.Button(label="查看日志", variant="ghost", onClick=host("openLogs")),
@@ -184,4 +189,6 @@ def recognition_page():
             bind="state.promptOpen", title="识别提示词",
         ),
         state={"promptOpen": False},
+        queries=[{"id": "retry", "name": "retry-state", "input": {"flowKey": ui.expr("if", has_run,
+            ui.expr("concat", "ai/flow/", ui.expr("coalesce", ui.ref("run.flowId"), ui.ref("run.id"))), "")}}],
     )
