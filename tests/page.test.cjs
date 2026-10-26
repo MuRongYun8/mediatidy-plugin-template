@@ -8,7 +8,7 @@ const generated = spawnSync(process.env.PYTHON || 'python', ['-c', 'import json;
   cwd: path.resolve(__dirname, '..'), encoding: 'utf8',
 });
 assert.equal(generated.status, 0, generated.stderr);
-const page = validatePage(JSON.parse(generated.stdout), ['recognize', 'retry-recognition'], ['history', 'detail', 'retry-state', 'responses']);
+const page = validatePage(JSON.parse(generated.stdout), ['recognize', 'retry-recognition'], ['history', 'detail', 'retry-state', 'responses', 'results']);
 const results = page.content[0].children.find(n => n.props?.title === '识别结果');
 const table = results.children.find(n => n.component === 'Table');
 const draftSection = results.children.find(n => n.component === 'Section');
@@ -19,7 +19,7 @@ test('response diagnostics use the selected flow, expose failures, and render fi
   const answers = section.children.find(n => n.component === 'Table');
   const query = page.queries.find(q => q.id === 'responses');
   const model = { run: { id: 'continuation', flowId: 'root' }, query: { responses: { data: { items: [{ batch: 1 }] } } } };
-  assert.deepEqual(evaluate(model, query.input), { flowKey: 'ai/flow/root' });
+  assert.deepEqual(evaluate(model, query.input), { flowKey: 'ai/flow/root', page: 1, revision: '' });
   assert.equal(evaluate(model, answers.props.visible), true);
   const raw = '<script>alert(1)</script>\n{"items":[]}';
   const cells = visibleCells({ batch: 1, diagnosis: '匹配 0/1', responseText: raw, truncated: true }, { columns: answers.props.columns, expanded: true });
@@ -180,4 +180,22 @@ test('metadata verification without citations shows a checked entry, not search 
   assert.match(cells[2],/待确认/);
   assert.match(cells[3],/TMDB 核对条目/);
   assert.doesNotMatch(cells.join('\n'),/未识别|搜索依据/);
+});
+
+test('result and answer paging follows the selected flow and refreshes with run changes', () => {
+  const query = page.queries.find(q => q.id === 'results');
+  const model = {run: {id: 'child', flowId: 'flow', updatedAt: 'now'}, state: {resultsFlow: 'ai/flow/flow', resultsPage: 6}, query: {results: {data: {available: true, page: 6, pages: 6, total: 106, previous: 5, next: 6, items: [{name: 'last'}]}}}};
+  assert.deepEqual(evaluate(model, query.input), {flowKey: 'ai/flow/flow', page: 6, revision: 'now'});
+  assert.deepEqual(evaluate(model, table.props.source), [{name: 'last'}]);
+  const pager = results.children.find(n => n.component === 'Stack');
+  assert.equal(evaluate(model, pager.props.visible), true);
+  assert.equal(evaluate(model, pager.children[0].props.disabled), false);
+  assert.equal(evaluate(model, pager.children[2].props.disabled), true);
+  assert.deepEqual(evaluate(model, pager.children[0].props.onClick), [
+    {type: 'set', path: 'state.resultsFlow', value: 'ai/flow/flow'},
+    {type: 'set', path: 'state.resultsPage', value: 5},
+  ]);
+  model.run.flowId = 'new-flow';
+  assert.equal(evaluate(model, query.input).page, 1);
+  assert.deepEqual(evaluate({run: {result: [{name: 'legacy'}]}}, table.props.source), [{name: 'legacy'}]);
 });

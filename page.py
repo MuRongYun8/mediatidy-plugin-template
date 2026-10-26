@@ -98,10 +98,24 @@ def draft_columns():
     ]
 
 
+def pagination(query_id, flow_key):
+    data = f"query.{query_id}.data"
+    return ui.Stack(
+        ui.Button(label="上一页", variant="outline", disabled=ui.expr("lte", ui.ref(data+".page"), 1),
+            onClick=[{"type": "set", "path": f"state.{query_id}Flow", "value": flow_key},
+                     {"type": "set", "path": f"state.{query_id}Page", "value": ui.ref(data+".previous")}]),
+        ui.Text(text=ui.expr("concat", "第 ", ui.ref(data+".page"), "/", ui.ref(data+".pages"), " 页 · 共 ", ui.ref(data+".total"), " 项")),
+        ui.Button(label="下一页", variant="outline", disabled=ui.expr("gte", ui.ref(data+".page"), ui.ref(data+".pages")),
+            onClick=[{"type": "set", "path": f"state.{query_id}Flow", "value": flow_key},
+                     {"type": "set", "path": f"state.{query_id}Page", "value": ui.ref(data+".next")}]),
+        direction="row", gap="sm", visible=ui.expr("gt", ui.ref(data+".pages"), 1))
+
+
 def recognition_page():
     has_run = ui.ref("run.id")
     running = ui.expr("includes", ["queued", "running", "waiting", "submitting"], ui.ref("run.status"))
-    has_rows = ui.expr("gt", ui.expr("length", ui.ref("run.result")), 0)
+    rows = ui.expr("if", ui.ref("query.results.data.available"), ui.ref("query.results.data.items"), ui.ref("run.result"))
+    has_rows = ui.expr("gt", ui.expr("length", rows), 0)
     has_drafts = ui.expr("gt", ui.expr("length", ui.ref("run.drafts")), 0)
     can_retry = ui.expr("and", ui.expr("not", running), ui.expr("gt", ui.ref("query.retry.data.count"), 0))
     flow_key = ui.expr("if", has_run,
@@ -114,7 +128,7 @@ def recognition_page():
                 ui.Card(
                     ui.FilePicker(),
                     title="选择片源",
-                    description="勾选视频文件，或选择一个目录批量扫描。每次最多处理 100 个视频。",
+                    description="勾选视频文件或目录。每轮最多 500 个视频，自动按每批 8 个文件依次识别；超过 100 个需更新主程序。",
                 ),
                 ui.Card(
                     ui.ProfilePicker(label="整理到哪里", bind="input.profileId"),
@@ -174,8 +188,11 @@ def recognition_page():
                     ui.Text(text="需要修正时，点击上方「修正或确认整理」。核验通过并由你确认后才会提交整理。", tone="muted", size="sm"),
                     title="MT 核验与整理", visible=has_drafts,
                 ),
-                ui.Table(source=ui.ref("run.result"), rowKey="fileRef", searchable=True, sortable=True, pageSize=20,
+                ui.Alert(text=ui.ref("query.results.error"), tone="danger", visible=ui.ref("query.results.error")),
+                ui.Table(source=rows, rowKey="fileRef", searchable=True, sortable=True, pageSize=20,
                     visible=has_rows, columns=result_columns()),
+                pagination("results", flow_key),
+                ui.Text(text="搜索与排序作用于当前页。", tone="muted", size="sm", visible=ui.expr("gt", ui.ref("query.results.data.pages"), 1)),
                 ui.Details(
                     ui.Text(text="保留每批最终回答的前 8 KB，便于核对解析错误或文件引用；旧版记录无法补回未保存的回答。", tone="muted", size="sm"),
                     ui.Button(label="刷新回答", variant="outline", onClick=[{"type": "query", "queryId": "responses"}]),
@@ -191,6 +208,7 @@ def recognition_page():
                             ui.Text(text="回答较长，仅保留前 8 KB。", tone="muted", size="sm", visible=ui.ref("row.truncated")),
                             label="展开原始回答") ]},
                     ]),
+                    pagination("responses", flow_key),
                     label="AI 原始回答与诊断",
                 ),
                 ui.EmptyState(
@@ -210,5 +228,7 @@ def recognition_page():
         ),
         state={"promptOpen": False},
         queries=[{"id": "retry", "name": "retry-state", "input": {"flowKey": flow_key}},
-                 {"id": "responses", "name": "responses", "input": {"flowKey": flow_key}}],
+                 *[{"id": name, "name": name, "input": {"flowKey": flow_key,
+                     "page": ui.expr("if", ui.expr("eq", ui.ref(f"state.{name}Flow"), flow_key), ui.expr("coalesce", ui.ref(f"state.{name}Page"), 1), 1),
+                     "revision": ui.expr("coalesce", ui.ref("run.updatedAt"), "")}} for name in ("responses", "results")]],
     )

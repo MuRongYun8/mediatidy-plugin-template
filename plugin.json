@@ -1,7 +1,7 @@
 {
   "id": "official.ai-organize",
   "name": "AI 识别整理",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "sdkVersion": "2",
   "description": "选择片源，识别作品与季集，按你的方案整理入库。",
   "author": "MediaTidy",
@@ -39,7 +39,7 @@
           "key": "files",
           "type": "files",
           "required": true,
-          "label": "文件或目录（最多 100 个视频）"
+          "label": "文件或目录（每轮最多 500 个视频，每批识别 8 个）"
         },
         {
           "key": "profileId",
@@ -157,6 +157,13 @@
           "flowKey": {
             "type": "string",
             "maxLength": 100
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "string"
           }
         }
       },
@@ -195,6 +202,27 @@
           "flowKey": {
             "type": "string",
             "maxLength": 100
+          }
+        }
+      },
+      "outputSchema": {}
+    },
+    {
+      "id": "results",
+      "label": "分页识别结果",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "flowKey": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "string"
           }
         }
       },

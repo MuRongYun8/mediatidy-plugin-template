@@ -52,6 +52,8 @@ class Host:
             return {"found": args["key"] in self.values, "value": deepcopy(self.values.get(args["key"]))}
         elif method == "storage.list":
             return {"items": [{"key": k, "value": deepcopy(v)} for k, v in self.values.items() if k.startswith(args["prefix"])]}
+        elif method == "runtime.info":
+            return {"limits": {"maxWorkflowFiles": 500}}
         elif method == "files.scan":
             return {"ref": "scan-task", "status": "queued"}
         elif method == "files.stat":
@@ -285,7 +287,7 @@ class WorkflowTests(unittest.TestCase):
         rows = plugin.organize_complete({"flowKey": "ai/flow/flow"}, ctx)
         self.assertEqual([row["status"] for row in rows], ["done", "organize_failed"])
         self.assertEqual(rows[1]["error"], "Target unavailable")
-        self.assertEqual(len(plugin.history({}, ctx)["items"]), 3)
+        self.assertEqual(len(plugin.history({}, ctx)["items"]), 4)  # Flow, two files, one batch answer.
         self.assertEqual(plugin.detail({"key": "ai/flow/flow/one"}, ctx)["taskRef"], "task-one")
 
     def test_scan_continuation_retains_selected_files_and_deduplicates(self):

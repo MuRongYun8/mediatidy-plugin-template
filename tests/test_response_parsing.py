@@ -58,7 +58,7 @@ class ResponseParsingTests(unittest.TestCase):
         self.assertEqual([r["status"] for r in rows], ["failed"] * 8 + ["queued"])
         self.assertEqual([a["fileRef"] for a in host.submissions], ["8"])
         self.assertEqual(sum(m == "ai.chat" for m, _ in host.calls), 2)
-        self.assertEqual(len(host.values["ai/flow/flow"]["responses"]), 2)
+        self.assertEqual(host.values["ai/flow/flow"]["responseCount"], 2)
 
     def test_final_text_saved_before_failure_and_available_for_manual_retry(self):
         host = Host()
@@ -83,13 +83,13 @@ class ResponseParsingTests(unittest.TestCase):
         host = Host()
         plugin = Plugin()
         flow = {"key": "ai/flow/flow", "instructions": "x" * 16000}
-        # Worst-case escaping and multi-byte text; at most 13 batches per 100 files.
-        for index in range(13):
+        # Worst-case escaping and multi-byte text, 63 batches per 500 files.
+        for index in range(63):
             raw = ("\"\t" * 4094) + "影片" * 5000
             host.replies = [{"content": raw}]
             plugin._identify(host.context(), flow, [file(str(index))])
         self.assertLess(len(json.dumps(flow, ensure_ascii=False).encode("utf-8")), 256 * 1024)
-        for answer in flow["responses"]:
+        for answer in (v for k, v in host.values.items() if "/responses/" in k):
             self.assertLessEqual(len(answer["responseText"].encode("utf-8")), 8192)
             self.assertNotIn("\ufffd", answer["responseText"])
             self.assertTrue(answer["truncated"])
@@ -100,7 +100,7 @@ class ResponseParsingTests(unittest.TestCase):
         ctx = host.context()
         host.values["ai/flow/old"] = {"key": "ai/flow/old"}
         for params in [{}, {"flowKey": "ai/flow/missing"}, {"flowKey": "ai/flow/old"}]:
-            self.assertEqual(plugin.responses(params, ctx), {"items": []})
+            self.assertEqual(plugin.responses(params, ctx)["items"], [])
         host.values["other/key"] = {"key": "other/key", "responses": ["not a flow"]}
         with self.assertRaises(SDKError):
             plugin.responses({"flowKey": "other/key"}, ctx)
