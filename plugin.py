@@ -72,22 +72,50 @@ def metadata_error(identity: dict, media: dict) -> str:
     return ""
 
 
-def parse_identity(content: str, refs: set[str]) -> dict[str, dict]:
-    if not isinstance(content, str):
-        return {}
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.split("\n", 1)[-1].rsplit("```", 1)[0]
+def response_items(content: str) -> list:
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("AI 返回的最终回答为空")
+    content = content.lstrip("\ufeff").strip()
     try:
-        items = json.loads(content)["items"]
-        if not isinstance(items, list):
-            return {}
-    except (ValueError, KeyError, TypeError):
-        return {}
+        document = json.loads(content)
+    except ValueError:
+        # Accept a complete JSON block surrounded by commentary/citations. Never
+        # salvage nested items from a truncated document or choose between answers.
+        text = re.sub(r"(?mi)^[ \t]*```(?:json)?[ \t]*\r?$", "", content)
+        decoder = json.JSONDecoder()
+        documents = []
+        consumed = 0
+        for match in re.finditer(r"[{\[]", text):
+            start = match.start()
+            if start < consumed:
+                continue
+            try:
+                value, end = decoder.raw_decode(text, start)
+            except ValueError:
+                raise ValueError("AI 回答中的 JSON 不完整或格式无效") from None
+            documents.append(value)
+            consumed = end
+        if len(documents) != 1:
+            raise ValueError("AI 回答未包含唯一、完整的识别 JSON")
+        document = documents[0]
+    items = document.get("items") if isinstance(document, dict) else document
+    if not isinstance(items, list):
+        raise ValueError("AI 回答缺少 items 结果数组")
+    return items
+
+
+def parse_identity_result(content: str, refs: set[str]) -> tuple[dict[str, dict], dict[str, str], str]:
+    try:
+        items = response_items(content)
+    except (ValueError, RecursionError) as error:
+        message = str(error) if isinstance(error, ValueError) else "AI 回答的 JSON 嵌套过深"
+        return {}, {ref: message + "；请展开 AI 原始回答查看，可手动重试" for ref in refs}, message
     result: dict[str, dict] = {}
     duplicate: set[str] = set()
+    invalid = 0
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get("fileRef"), str) or item["fileRef"] not in refs:
+            invalid += 1
             continue
         ref = item["fileRef"]
         if ref in result or ref in duplicate:
@@ -95,7 +123,15 @@ def parse_identity(content: str, refs: set[str]) -> dict[str, dict]:
             duplicate.add(ref)
         else:
             result[ref] = item
-    return result
+    errors = {ref: "AI 对此文件返回了重复引用，无法确定采用哪项；请展开 AI 原始回答查看，可手动重试" if ref in duplicate
+              else "AI 回答缺少此文件的结果或文件引用不匹配；请展开 AI 原始回答查看，可手动重试"
+              for ref in refs - result.keys()}
+    summary = f"返回 {len(items)} 项，匹配 {len(result)}/{len(refs)} 个文件，重复引用 {len(duplicate)} 个，无效或未知引用 {invalid} 项"
+    return result, errors, summary
+
+
+def parse_identity(content: str, refs: set[str]) -> dict[str, dict]:
+    return parse_identity_result(content, refs)[0]
 
 
 def identity_error(identity: dict) -> str:
@@ -168,6 +204,16 @@ class Plugin(BasePlugin):
         flow = self._retry_flow(ctx, key)
         return {"flowKey": key, "count": len(self._retry_items(ctx, flow)),
                 "message": "已创建重试，请在运行记录中查看新一轮结果" if flow.get("retriedBy") else ""}
+
+    @query("responses")
+    def responses(self, input: dict, ctx: Context):
+        key = input.get("flowKey", "")
+        if not key:
+            return {"items": []}
+        stored = ctx.mt.storage.get(key=key)
+        if not stored["found"]:
+            return {"items": []}
+        return {"items": self._retry_flow(ctx, key).get("responses", [])}
 
     @action("retry-recognition")
     def retry_recognition(self, input: dict, ctx: Context):
@@ -260,7 +306,7 @@ class Plugin(BasePlugin):
                 offset = next_offset
         return self._process(ctx,flow)
 
-    def _identify(self, ctx: Context, flow: dict, files: list[dict]) -> tuple[dict[str, dict], list[dict]]:
+    def _identify(self, ctx: Context, flow: dict, files: list[dict]) -> tuple[dict[str, dict], list[dict], dict[str, str]]:
         clues = [{"fileRef": file["ref"], "name": file["name"],
                   "directory": "/".join(file["path"].replace("\\", "/").split("/")[:-1][-3:])}
                  for file in files]
@@ -272,7 +318,18 @@ class Plugin(BasePlugin):
         if search.get("performed") is not True:
             raise SDKError("宿主或服务商未确认原生搜索已完成，请更新 MT 并检查模型联网支持；未提交整理", "AI_NATIVE_SEARCH_NOT_PERFORMED")
         sources = search.get("sources", [])
-        return parse_identity(response.get("message", {}).get("content", ""), {file["ref"] for file in files}), sources if isinstance(sources, list) else []
+        content = response.get("message", {}).get("content", "")
+        identities, errors, summary = parse_identity_result(content, {file["ref"] for file in files})
+        # Only provider-visible final text is retained, never reasoning or request
+        # credentials. Bound the preview so a full 100-file flow fits KV limits.
+        text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", content) if isinstance(content, str) else ""
+        raw = text.encode("utf-8", errors="replace")
+        answers = flow.setdefault("responses", [])
+        answers.append({"batch": len(answers)+1, "diagnosis": summary,
+                        "responseText": raw[:8192].decode("utf-8", errors="ignore"), "truncated": len(raw) > 8192})
+        save(ctx, flow["key"], flow)
+        ctx.mt.log(level="warn" if errors else "info", message="AI 回答解析：" + summary)
+        return identities, sources if isinstance(sources, list) else [], errors
 
     def _process(self, ctx: Context, flow: dict):
         items = [read(ctx,flow["key"]+"/"+ref) for ref in flow["refs"]]
@@ -285,7 +342,7 @@ class Plugin(BasePlugin):
             ctx.mt.runtime.progress(completed=offset,total=len(items),message="AI 搜索识别中")
             ctx.mt.log(level="info",message=f"识别第 {offset+1} 至 {min(offset+8,len(items))} 个文件")
             try:
-                identities,sources=self._identify(ctx,flow,[item["file"] for item in batch])
+                identities,sources,response_errors=self._identify(ctx,flow,[item["file"] for item in batch])
             except SDKError as error:
                 if error.code == "CANCELLED":
                     raise
@@ -299,16 +356,20 @@ class Plugin(BasePlugin):
                 ctx.mt.runtime.result(value=self._views(items))
                 ctx.mt.log(level="error", message=f"AI 识别中止（{error.code}）：{message}")
                 break
+            if not identities:
+                # This batch has no usable rows, but later batches can still succeed.
+                failure = SDKError("AI 回答未包含可用的文件结果；请展开 AI 原始回答查看解析诊断，可手动重试", "AI_RESULT_INVALID", True)
             # Publish the complete batch before any metadata lookup or file operation.
             for item in batch:
                 identity = identities.get(item["file"]["ref"], {})
-                validation_error = identity_error(identity)
+                response_error = response_errors.get(item["file"]["ref"], "")
+                validation_error = response_error or identity_error(identity)
                 source = confirmed_source(identity, sources) if not validation_error else ""
                 # Citations are display evidence; TMDB metadata decides whether the ID matches.
                 item.update(identity=identity, title=identity.get("title", "") if isinstance(identity.get("title"), str) else "",
                             verifiedSource=source,
-                            recognitionStatus="unknown" if validation_error else "recognized",
-                            status="unrecognized" if validation_error else "recognized", error=validation_error)
+                            recognitionStatus="invalid_response" if response_error else "unknown" if validation_error else "recognized",
+                            status="failed" if response_error else "unrecognized" if validation_error else "recognized", error=validation_error)
                 save(ctx, flow["key"]+"/"+item["file"]["ref"], item)
             ctx.mt.runtime.result(value=self._views(items))
             ctx.mt.runtime.progress(completed=min(offset+8,len(items)),total=len(items),message="本批 AI 识别完成，正在准备整理")

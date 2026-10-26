@@ -104,6 +104,9 @@ def recognition_page():
     has_rows = ui.expr("gt", ui.expr("length", ui.ref("run.result")), 0)
     has_drafts = ui.expr("gt", ui.expr("length", ui.ref("run.drafts")), 0)
     can_retry = ui.expr("and", ui.expr("not", running), ui.expr("gt", ui.ref("query.retry.data.count"), 0))
+    flow_key = ui.expr("if", has_run,
+        ui.expr("concat", "ai/flow/", ui.expr("coalesce", ui.ref("run.flowId"), ui.ref("run.id"))), "")
+    has_responses = ui.expr("gt", ui.expr("length", ui.ref("query.responses.data.items")), 0)
     review = ui.ref("input.review")
     return ui.page(
         ui.Page(
@@ -173,6 +176,23 @@ def recognition_page():
                 ),
                 ui.Table(source=ui.ref("run.result"), rowKey="fileRef", searchable=True, sortable=True, pageSize=20,
                     visible=has_rows, columns=result_columns()),
+                ui.Details(
+                    ui.Text(text="保留每批最终回答的前 8 KB，便于核对解析错误或文件引用；旧版记录无法补回未保存的回答。", tone="muted", size="sm"),
+                    ui.Button(label="刷新回答", variant="outline", onClick=[{"type": "query", "queryId": "responses"}]),
+                    ui.Text(text="正在读取回答", visible=ui.ref("query.responses.loading")),
+                    ui.Alert(text=ui.ref("query.responses.error"), tone="danger", visible=ui.ref("query.responses.error")),
+                    ui.Text(text="本次记录没有保存 AI 最终回答。", tone="muted",
+                        visible=ui.expr("and", ui.expr("not", has_responses), ui.expr("not", ui.ref("query.responses.loading")), ui.expr("not", ui.ref("query.responses.error")))),
+                    ui.Table(source=ui.ref("query.responses.data.items"), rowKey="batch", visible=has_responses, columns=[
+                        {"label": "批次", "cells": [ui.Text(text=ui.ref("row.batch"))]},
+                        {"label": "解析诊断", "cells": [ui.Text(text=ui.ref("row.diagnosis"))]},
+                        {"label": "最终回答", "cells": [ui.Details(
+                            ui.Text(text=ui.expr("if", ui.ref("row.responseText"), ui.ref("row.responseText"), "（空回答）")),
+                            ui.Text(text="回答较长，仅保留前 8 KB。", tone="muted", size="sm", visible=ui.ref("row.truncated")),
+                            label="展开原始回答") ]},
+                    ]),
+                    label="AI 原始回答与诊断",
+                ),
                 ui.EmptyState(
                     title=ui.expr("if", has_run, "还没有识别结果", "让每个文件，找到它的作品"),
                     description=ui.expr("if", running, "正在扫描或识别片源，结果会自动显示在这里。", ui.expr("if", has_run,
@@ -189,6 +209,6 @@ def recognition_page():
             bind="state.promptOpen", title="识别提示词",
         ),
         state={"promptOpen": False},
-        queries=[{"id": "retry", "name": "retry-state", "input": {"flowKey": ui.expr("if", has_run,
-            ui.expr("concat", "ai/flow/", ui.expr("coalesce", ui.ref("run.flowId"), ui.ref("run.id"))), "")}}],
+        queries=[{"id": "retry", "name": "retry-state", "input": {"flowKey": flow_key}},
+                 {"id": "responses", "name": "responses", "input": {"flowKey": flow_key}}],
     )

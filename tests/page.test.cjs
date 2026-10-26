@@ -8,11 +8,41 @@ const generated = spawnSync(process.env.PYTHON || 'python', ['-c', 'import json;
   cwd: path.resolve(__dirname, '..'), encoding: 'utf8',
 });
 assert.equal(generated.status, 0, generated.stderr);
-const page = validatePage(JSON.parse(generated.stdout), ['recognize', 'retry-recognition'], ['history', 'detail', 'retry-state']);
+const page = validatePage(JSON.parse(generated.stdout), ['recognize', 'retry-recognition'], ['history', 'detail', 'retry-state', 'responses']);
 const results = page.content[0].children.find(n => n.props?.title === '识别结果');
 const table = results.children.find(n => n.component === 'Table');
 const draftSection = results.children.find(n => n.component === 'Section');
 const draftTable = draftSection.children.find(n => n.component === 'Table');
+
+test('response diagnostics use the selected flow, expose failures, and render final text as plain text', () => {
+  const section = results.children.find(n => n.props?.label === 'AI 原始回答与诊断');
+  const answers = section.children.find(n => n.component === 'Table');
+  const query = page.queries.find(q => q.id === 'responses');
+  const model = { run: { id: 'continuation', flowId: 'root' }, query: { responses: { data: { items: [{ batch: 1 }] } } } };
+  assert.deepEqual(evaluate(model, query.input), { flowKey: 'ai/flow/root' });
+  assert.equal(evaluate(model, answers.props.visible), true);
+  const raw = '<script>alert(1)</script>\n{"items":[]}';
+  const cells = visibleCells({ batch: 1, diagnosis: '匹配 0/1', responseText: raw, truncated: true }, { columns: answers.props.columns, expanded: true });
+  assert.equal(cells[0], '1');
+  assert.equal(cells[1], '匹配 0/1');
+  assert.match(cells[2], /仅保留前 8 KB/);
+  assert.ok(cells[2].includes(raw));
+  const disclosure = answers.props.columns[2].cells[0];
+  assert.ok(disclosure.children.every(n => n.component === 'Text'));
+  const refresh = section.children.find(n => n.component === 'Button');
+  assert.deepEqual(refresh.props.onClick, [{ type: 'query', queryId: 'responses' }]);
+  const empty = section.children.find(n => n.props?.text === '本次记录没有保存 AI 最终回答。');
+  assert.equal(evaluate({ query: { responses: { data: { items: [] } } } }, empty.props.visible), true);
+  assert.equal(evaluate({ query: { responses: { loading: true } } }, empty.props.visible), false);
+  assert.equal(evaluate({ query: { responses: { error: '读取失败' } } }, empty.props.visible), false);
+});
+
+test('invalid AI result is a failure and does not imply the work was unrecognizable', () => {
+  const cells = visibleCells({ name: 'Carrie.S01E01.mkv', status: 'failed', recognitionStatus: 'invalid_response',
+    error: 'AI 回答缺少此文件的结果或文件引用不匹配' });
+  assert.match(cells[2], /失败/);
+  assert.doesNotMatch(cells[2], /未识别，已跳过|AI 识别完成/);
+});
 
 test('manual retry uses the original flow and is available only when idle with eligible files', () => {
   const card = page.content[0].children.find(n => n.props?.title === '本次识别');

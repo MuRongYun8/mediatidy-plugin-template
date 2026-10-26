@@ -160,9 +160,11 @@ class WorkflowTests(unittest.TestCase):
                          {"toolCalls":[{"name":"tmdb_search","arguments":"{}"}]}]:
             with self.subTest(response=response):
                 host = Host(); host.replies = [response]
-                rows = Plugin().recognize({"profileId":7}, host.context(files=[file("one")]))
+                with self.assertRaises(SDKError) as caught:
+                    Plugin().recognize({"profileId":7}, host.context(files=[file("one")]))
+                self.assertEqual(caught.exception.code, "AI_RESULT_INVALID")
                 self.assert_single_chat(host)
-                self.assertEqual(rows[0]["status"],"unrecognized")
+                self.assertEqual(host.values["ai/flow/flow/one"]["status"], "failed")
                 self.assertFalse(host.submissions)
 
     def test_timeout_never_retries(self):
@@ -178,7 +180,7 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 host = Host(); host.replies = [{"content":json.dumps({"items":[{**identity("one"),**invalid},identity("two")]})}]
                 rows=Plugin().recognize({"profileId":7},host.context(files=[file("one"),file("two"),file("missing")]))
-                self.assertEqual([r["status"] for r in rows],["unrecognized","queued","unrecognized"])
+                self.assertEqual([r["status"] for r in rows],["unrecognized","queued","failed"])
                 self.assertEqual([p["fileRef"] for p in host.submissions],["two"])
                 self.assert_single_chat(host)
 
